@@ -7,12 +7,23 @@ from k2down.cli import main
 
 
 @pytest.fixture
-def k2(tmp_path, capsys, monkeypatch):
+def k2_text(tmp_path, capsys, monkeypatch):
     def run(*args, stdin=None):
         if stdin is not None:
             monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
         code = main(["--dir", str(tmp_path), *args])
         out, err = capsys.readouterr()
+        return code, out, err
+
+    return run
+
+
+@pytest.fixture
+def k2(k2_text):
+    """--json 付きで実行し、出力を JSON として読む。"""
+
+    def run(*args, stdin=None):
+        code, out, err = k2_text("--json", *args, stdin=stdin)
         return code, (json.loads(out) if out else None), (json.loads(err) if err else None)
 
     return run
@@ -98,3 +109,49 @@ def test_k2down_dir_env(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("K2DOWN_DIR", str(tmp_path))
     assert main(["add", "a"]) == 0
     assert (tmp_path / "rules.json").exists()
+
+
+NESTED = {"version": 1, "root": {"id": "N000", "summary": "全体", "children": [
+    {"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"},
+    {"id": "N001", "summary": "社内\n認証", "children": [
+        {"id": "R002", "rule": "社内バッチ間の認証はサービスアカウントで行う", "note": "notes/R002.md"},
+    ]},
+    {"id": "R003", "rule": "ログは JSON で出す"},
+]}}
+
+
+def test_text_list_is_indented_tree(k2_text, tmp_path):
+    (tmp_path / "rules.json").write_text(json.dumps(NESTED), encoding="utf-8")
+    assert k2_text("list") == (0, """\
+N000 全体
+  R001 外部公開 API の認証は OAuth に統一する
+  N001 社内 認証
+    R002 社内バッチ間の認証はサービスアカウントで行う [note: notes/R002.md]
+  R003 ログは JSON で出す
+""", "")
+
+
+def test_text_empty_list(k2_text):
+    assert k2_text("list") == (0, "N000 全体\n", "")
+
+
+def test_text_add_apply_reject(k2_text, tmp_path):
+    assert k2_text("add", "a") == (0, "R001\n", "")
+    assert k2_text("add", "b") == (0, "R002\n", "")
+    assert k2_text("apply", "--problem", "p", "R002", "R001") == (0, "applied R002 R001\n", "")
+    assert k2_text("reject", "--problem", "p", "R001") == (0, "rejected R001\n", "")
+    assert len(read_usage(tmp_path)) == 3
+
+
+def test_text_error(k2_text, tmp_path):
+    k2_text("add", "a")
+    code, out, err = k2_text("apply", "--problem", "p", "R999")
+    assert (code, out, err) == (1, "", "error: unknown rule id: R999\n")
+    assert not (tmp_path / "usage.jsonl").exists()
+
+
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_json_flag_position(k2_text, position):
+    args = ["--json", "add", "a"] if position == "before" else ["add", "a", "--json"]
+    code, out, _ = k2_text(*args)
+    assert code == 0 and json.loads(out) == {"id": "R001"}

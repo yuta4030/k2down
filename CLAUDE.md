@@ -13,7 +13,7 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 
 ## 技術スタック
 - Python 3.11+、パッケージ管理は uv
-- CLI は標準ライブラリの argparse。出力は JSON 1 個を stdout、エラーは終了コード 1 と `{"error": ...}` を stderr
+- CLI は標準ライブラリの argparse。既定の出力は LLM 向けのプレーンテキスト（`ID␣本文`、木はインデント）、`--json` で JSON。エラーは終了コード 1 と stderr
 - MCP サーバー（任意）は公式 Python SDK（stdio）
 - clone してすぐ動くこと（ビルド工程なし）
 - テストは pytest。判定は固定の結果を返すフェイク判定器で行い、テストでも通信しない

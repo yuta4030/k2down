@@ -32,13 +32,23 @@ k2down --dir /path/to/your/rules list
 
 | コマンド | 説明 | 出力 |
 |---|---|---|
-| `k2down list` | 全ルールを返す | `{"rules": [{"id", "rule", "parent", "note"?}]}` |
-| `k2down add RULE [--parent N001]` | 1 行ルールを追加する | `{"id": "R003"}` |
-| `k2down apply --problem P ID...` | ルールを問題に適用したことを記録する | `{"applied": [...]}` |
-| `k2down reject --problem P ID...` | 適用したルールを人間が却下したことを記録する | `{"rejected": [...]}` |
+| `k2down list` | 全ルールを返す | 木構造のテキスト（下記） |
+| `k2down add RULE [--parent N001]` | 1 行ルールを追加する | `R003` |
+| `k2down apply --problem P ID...` | ルールを問題に適用したことを記録する | `applied R001 R003` |
+| `k2down reject --problem P ID...` | 適用したルールを人間が却下したことを記録する | `rejected R003` |
 
-- 出力は常に JSON 1 個を stdout に書きます
-- エラー時は終了コード 1 で、`{"error": "..."}` を stderr に書きます。存在しない ID を指定したときは何も記録しません
+`list` の出力は 1 行 1 項目で、「ID␣本文」を木の深さごとに 2 スペースずつ字下げしたものです。
+
+```text
+N000 全体
+  R001 外部公開 API の認証は OAuth に統一する
+  N001 社内認証
+    R002 社内バッチ間の認証はサービスアカウントで行う [note: notes/R002.md]
+```
+
+- 既定の出力は、LLM が読みやすくトークンの少ないプレーンテキストです（同じ内容の JSON の半分以下）
+- `--json` を付けると JSON を返します（`list` は `{"rules": [{"id", "rule", "parent", "note"?}]}`）
+- エラー時は終了コード 1 で、stderr に `error: ...`（`--json` なら `{"error": "..."}`）を書きます。存在しない ID を指定したときは何も記録しません
 - テキスト引数に `-` を渡すと stdin から読みます
 
 ### AI エージェントに使わせる

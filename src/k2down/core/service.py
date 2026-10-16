@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from k2down.core.judge import Judge
-from k2down.core.model import Rule
+from k2down.core.model import Rule, RuleError
 from k2down.core.store import RuleStore
 from k2down.core.usage import UsageLog
 
@@ -25,3 +25,21 @@ async def find_rules(store: RuleStore, judge: Judge, problem: str, log: UsageLog
         for rule in matched:
             log.append("applied", rule.id, problem)
     return matched
+
+
+def record(store: RuleStore, log: UsageLog, event: str, rule_ids: list[str], problem: str) -> list[Rule]:
+    """判定器の外（ホスト側の AI や人間）で下された判定をログに残す。
+
+    存在しない ID が 1 つでもあれば何も書かずに RuleError を送出する。
+    """
+    problem = problem.strip()
+    if not problem:
+        raise ValueError("problem must not be empty")
+    by_id = {rule.id: rule for rule in store.rules()}
+    unknown = [rule_id for rule_id in rule_ids if rule_id not in by_id]
+    if unknown:
+        raise RuleError(f"unknown rule id: {', '.join(unknown)}")
+    rules = [by_id[rule_id] for rule_id in dict.fromkeys(rule_ids)]
+    for rule in rules:
+        log.append(event, rule.id, problem)
+    return rules

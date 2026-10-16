@@ -64,6 +64,10 @@ class RuleStore:
         """全ての葉を木の順で返す。"""
         return [item for item in _walk(self.root) if isinstance(item, Rule)]
 
+    def rules_with_parent(self) -> list[tuple[str, Rule]]:
+        """全ての葉を (親ノード ID, ルール) の組で木の順に返す。"""
+        return list(_walk_rules(self.root))
+
     def get(self, item_id: str) -> Node | Rule | None:
         for item in _walk(self.root):
             if item.id == item_id:
@@ -93,3 +97,11 @@ def _walk(node: Node) -> Iterator[Node | Rule]:
             yield from _walk(child)
         else:
             yield child
+
+
+def _walk_rules(node: Node) -> Iterator[tuple[str, Rule]]:
+    for child in node.children:
+        if isinstance(child, Node):
+            yield from _walk_rules(child)
+        else:
+            yield node.id, child

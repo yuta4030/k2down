@@ -35,13 +35,18 @@ def test_no_network_imports(path):
         assert not prefixes & FORBIDDEN, f"{path.relative_to(ROOT)} imports {name}"
 
 
-@pytest.mark.parametrize("path", sorted((SRC / "core").rglob("*.py")), ids=lambda p: p.name)
-def test_core_imports_only_stdlib_and_itself(path):
+# CLI と core は標準ライブラリだけで動く（mcp パッケージは MCP サーバー専用）。
+STDLIB_ONLY = sorted([*(SRC / "core").rglob("*.py"), SRC / "__init__.py", SRC / "__main__.py", SRC / "cli.py"])
+
+
+@pytest.mark.parametrize("path", STDLIB_ONLY, ids=lambda p: str(p.relative_to(SRC)))
+def test_cli_and_core_import_only_stdlib_and_itself(path):
     import sys
 
     for name in imported_modules(path):
         top = name.split(".")[0]
         assert top in sys.stdlib_module_names or top in {"k2down", "__future__"}, f"{path.name} imports {name}"
+        assert not name.startswith("k2down.mcp"), f"{path.name} imports {name}"
 
 
 def test_core_has_no_runtime_dependencies():

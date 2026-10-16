@@ -7,9 +7,10 @@ k2down = 決断（ke-tsu-dan）= knockdown。
 
 ## 特徴
 
+- **CLI が本体。** 主な利用者はホスト側の AI エージェント（Claude Code 等）で、人間が直接打つことはあまり想定していない
+- **k2down 自身は判定しない。** ルールを渡すだけで、当てはまるかどうかはホスト側の AI が決め、その結果を記録させる
+- **一切通信しない。** CLI とコアは Python 標準ライブラリだけで動き、依存パッケージはゼロ
 - ルールは自然言語 1 行。`rules.json` に木構造で保存し、git で差分を追いやすい形式で書き出す
-- **ライブラリ本体は一切通信しない。** 判定は外から注入し、MCP サーバーでは MCP sampling でホスト側（Claude Code 等）の LLM に依頼する
-- コアは依存パッケージゼロ（Python 標準ライブラリのみ）
 - 適用ログはローカルの `usage.jsonl` に追記するだけ。テレメトリはない
 
 ## 必要なもの
@@ -17,47 +18,66 @@ k2down = 決断（ke-tsu-dan）= knockdown。
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
 
-## MCP サーバーとして使う（v0.1）
+## CLI
 
 ```sh
 git clone https://github.com/yuta4030/k2down.git
-cd k2down
-uv run --extra mcp k2down-mcp --dir /path/to/your/rules
+uv tool install ./k2down   # k2down コマンドを PATH に入れる（依存ゼロなので追加のダウンロードなし）
+k2down --dir /path/to/your/rules list
 ```
 
-`--dir`（省略時は環境変数 `K2DOWN_DIR`、それもなければカレントディレクトリ）にある `rules.json` と `usage.jsonl` を読み書きします。ファイルがなければ最初の `add_rule` で作られます。
+インストールせずに `uv run --directory /path/to/k2down k2down ...` や `python -m k2down ...`（`src` を `PYTHONPATH` に入れた場合）でも動きます。
 
-Claude Code に登録する例:
+`--dir`（省略時は環境変数 `K2DOWN_DIR`、それもなければカレントディレクトリ）にある `rules.json` と `usage.jsonl` を読み書きします。ファイルがなければ最初の `add` で作られます。
+
+| コマンド | 説明 | 出力 |
+|---|---|---|
+| `k2down list` | 全ルールを返す | `{"rules": [{"id", "rule", "parent", "note"?}]}` |
+| `k2down add RULE [--parent N001]` | 1 行ルールを追加する | `{"id": "R003"}` |
+| `k2down apply --problem P ID...` | ルールを問題に適用したことを記録する | `{"applied": [...]}` |
+| `k2down reject --problem P ID...` | 適用したルールを人間が却下したことを記録する | `{"rejected": [...]}` |
+
+- 出力は常に JSON 1 個を stdout に書きます
+- エラー時は終了コード 1 で、`{"error": "..."}` を stderr に書きます。存在しない ID を指定したときは何も記録しません
+- テキスト引数に `-` を渡すと stdin から読みます
+
+### AI エージェントに使わせる
+
+`k2down --help` にエージェント向けの手順を書いてあります。プロジェクトの `CLAUDE.md` などに次のように書いておけば十分です。
+
+```markdown
+## 決断ルール
+設計判断の前に `k2down list` で決断ルールを確認し、当てはまるものに従う。
+従ったルールは `k2down apply --problem "<問題の要約>" <ID...>` で記録する。
+ルールが無い新しい汎用的な判断をしたら、人間に確認してから `k2down add "<1 行ルール>"` で追加する。
+使い方の詳細は `k2down --help`。
+```
+
+## MCP サーバー（任意）
+
+CLI を使えない環境向けに、MCP サーバー（stdio）も用意しています。判定は MCP sampling でホスト側に依頼します。
+公式 MCP SDK に依存するため、`--extra mcp` を付けたときだけ入ります。
 
 ```sh
-claude mcp add k2down -- uv run --directory /path/to/k2down --extra mcp k2down-mcp --dir /path/to/your/rules
+uv run --directory /path/to/k2down --extra mcp k2down-mcp --dir /path/to/your/rules
 ```
-
-ホスト側が MCP sampling に対応している必要があります。
-
-### ツール
 
 | ツール | 説明 |
 |---|---|
-| `find_rules(problem)` | 問題文に当てはまるルールを返す。当てはまったものは `usage.jsonl` に `applied` として記録する |
-| `add_rule(rule, parent_id?)` | 1 行ルールを追加し、新しい ID（`R001` など）を返す |
+| `find_rules(problem)` | 問題文に当てはまるルールを返し、`usage.jsonl` に `applied` として記録する |
+| `add_rule(rule, parent_id?)` | 1 行ルールを追加し、新しい ID を返す |
 
 ## ライブラリとして使う
 
-判定器は `select(problem, rules) -> list[str]`（非同期）を持つオブジェクトなら何でも構いません。
-
 ```python
-import asyncio
-from k2down.core import RuleStore, UsageLog, find_rules
-
-class MyJudge:
-    async def select(self, problem, rules):
-        return [r.id for r in rules if "API" in problem and "API" in r.rule]
+from k2down.core import RuleStore, UsageLog, record
 
 store = RuleStore("rules.json")
-store.add_rule("外部公開 API の認証は OAuth に統一する")
-print(asyncio.run(find_rules(store, MyJudge(), "公開 API を新設する", UsageLog("usage.jsonl"))))
+rule = store.add_rule("外部公開 API の認証は OAuth に統一する")
+record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新設する")
 ```
+
+判定器（`select(problem, rules) -> list[str]` を持つ非同期オブジェクト）を自分で用意すれば、`find_rules` で判定から記録までまとめて行えます。
 
 ## データ形式
 
@@ -97,7 +117,7 @@ uv run pytest
 ```
 
 テストは固定の結果を返すフェイク判定器で行い、通信しません。
-`src/k2down` が通信用モジュールを import していないことと、コアが標準ライブラリだけで書かれていることもテストで確認しています。
+`src/k2down` が通信用モジュールを import していないことと、CLI とコアが標準ライブラリだけで書かれていることもテストで確認しています。
 
 ## ライセンス
 

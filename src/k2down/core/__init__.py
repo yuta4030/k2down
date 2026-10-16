@@ -5,8 +5,8 @@
 
 from k2down.core.judge import Judge
 from k2down.core.model import Node, Rule, RuleError
-from k2down.core.service import find_rules
+from k2down.core.service import find_rules, record
 from k2down.core.store import RuleStore
 from k2down.core.usage import UsageLog
 
-__all__ = ["Judge", "Node", "Rule", "RuleError", "RuleStore", "UsageLog", "find_rules"]
+__all__ = ["Judge", "Node", "Rule", "RuleError", "RuleStore", "UsageLog", "find_rules", "record"]

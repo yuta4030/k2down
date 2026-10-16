@@ -11,10 +11,11 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-# MCP サーバー（stdio）を使う場合のみ。
+# MCP サーバー（stdio）を使う場合のみ。CLI はこれなしで動く。
 mcp = ["mcp>=2.3,<3"]
 
 [project.scripts]
+k2down = "k2down.cli:main"
 k2down-mcp = "k2down.mcp.server:main"
 
 [dependency-groups]

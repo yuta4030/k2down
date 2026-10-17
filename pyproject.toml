@@ -1,0 +1,29 @@
+[project]
+name = "k2down"
+version = "0.1.0"
+description = "Knock down problems with decision rules written in natural language."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "yuta-ito" }]
+requires-python = ">=3.11"
+# コアは依存ゼロ。通信しないことを保つため、ここには何も足さない。
+dependencies = []
+
+[project.optional-dependencies]
+# MCP サーバー（stdio）を使う場合のみ。CLI はこれなしで動く。
+mcp = ["mcp>=2.3,<3"]
+
+[project.scripts]
+k2down = "k2down.cli:main"
+k2down-mcp = "k2down.mcp.server:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "mcp>=2.3,<3"]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

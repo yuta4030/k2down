@@ -155,3 +155,76 @@ def test_json_flag_position(k2_text, position):
     args = ["--json", "add", "a"] if position == "before" else ["add", "a", "--json"]
     code, out, _ = k2_text(*args)
     assert code == 0 and json.loads(out) == {"id": "R001"}
+
+
+def test_decision_flow(k2, tmp_path):
+    k2("add", "足すより引く", "--source", "session abc")
+    k2("add", "区別すべきは区別する")
+    assert k2("apply", "--decision", "D1", "--problem", "p", "R001", "R002")[0] == 0
+    code, out, _ = k2("decide", "--decision", "D1", "--predicted", "引く", "--actual", "-", "--outcome", "miss", stdin="足す\n")
+    assert code == 0
+    assert out == {"decided": {"decision": "D1", "predicted": "引く", "actual": "足す", "outcome": "miss"}}
+    assert k2("escalate", "--decision", "D2", "--problem", "q", "--reason", "conflict", "R002", "R001") == (
+        0,
+        {"escalated": {"decision": "D2", "reason": "conflict", "rule_ids": ["R002", "R001"]}},
+        None,
+    )
+    events = read_usage(tmp_path)
+    assert [e["event"] for e in events] == ["applied", "applied", "decided", "escalated"]
+    assert events[0]["decision"] == "D1"
+
+    code, out, _ = k2("report")
+    assert code == 0
+    assert out["conflict_candidates"] == [{"rule_ids": ["R001", "R002"], "decisions": ["D1", "D2"]}]
+    assert k2("list")[1]["rules"][0]["source"] == "session abc"
+
+
+def test_replace_and_retire(k2, tmp_path):
+    for text in "abc":
+        k2("add", text)
+    assert k2("replace", "R001", "a2") == (0, {"id": "R004", "replaced": "R001"}, None)
+    assert k2("retire", "R003")[1] == {"retired": [{"id": "R003", "rule": "c"}]}
+    assert k2("add", "d")[1] == {"id": "R005"}
+    assert [r["id"] for r in k2("list")[1]["rules"]] == ["R004", "R002", "R005"]
+    code, _, err = k2("apply", "--problem", "p", "R001")
+    assert code == 1 and err == {"error": "unknown rule id: R001 (replaced by R004)"}
+    assert [(e["event"], e["rule_id"]) for e in read_usage(tmp_path)] == [("replaced", "R001"), ("retired", "R003")]
+
+
+def test_text_new_commands(k2_text, tmp_path):
+    k2_text("add", "a", "--source", "D0")
+    k2_text("add", "b")
+    assert k2_text("list")[1] == "N000 全体\n  R001 a [source: D0]\n  R002 b\n"
+    assert k2_text("apply", "--decision", "D1", "--problem", "p", "R001") == (0, "applied R001\n", "")
+    assert k2_text("decide", "--decision", "D1", "--actual", "x", "--outcome", "hit") == (0, "decided D1 hit\n", "")
+    assert k2_text("escalate", "--decision", "D2", "--problem", "q", "--reason", "no_match") == (0, "escalated D2 no_match\n", "")
+    assert k2_text("decide", "--decision", "D2", "--actual", "人が決めた", "--outcome", "none") == (0, "decided D2 none\n", "")
+    assert k2_text("replace", "R002", "b2") == (0, "R003\n", "")
+    assert k2_text("retire", "R003") == (0, "retired R003\n", "")
+
+    code, out, _ = k2_text("report")
+    assert code == 0
+    assert "decisions 2: hit 1, miss 0, none 1\n" in out
+    assert "rules (ID applied hit miss rejected text):\n  R001 1 1 0 0 a\n" in out
+    assert "drop candidates (never applied):\n  (none)\n" in out
+    assert "new rule candidates (decided with outcome none):\n  D2 problem: q | actual: 人が決めた\n" in out
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("apply", "--decision", "D 1", "--problem", "p", "R001"),
+        ("escalate", "--decision", "D1", "--problem", "p", "--reason", "conflict", "R001"),
+        ("escalate", "--decision", "D1", "--problem", "p", "--reason", "conflict", "R001", "R999"),
+        ("replace", "R999", "x"),
+        ("retire", "R001", "R999"),
+        ("report", "--since", "yesterday"),
+    ],
+)
+def test_new_command_errors(k2, tmp_path, args):
+    k2("add", "a")
+    k2("add", "b")
+    code, out, err = k2(*args)
+    assert code == 1 and out is None and "error" in err
+    assert not (tmp_path / "usage.jsonl").exists()
+    assert len(k2("list")[1]["rules"]) == 2

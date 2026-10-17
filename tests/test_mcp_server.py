@@ -42,7 +42,10 @@ def test_add_then_find(tmp_path):
 
     seen = []
     result = call(server, "find_rules", {"problem": "公開 API を新設する"}, reply='答え: ["R001"]', seen=seen)
-    assert result.structured_content == {"result": [{"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"}]}
+    assert result.structured_content == {
+        "rules": [{"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"}],
+        "escalate": False,
+    }
 
     prompt = seen[0].messages[0].content.text
     assert "公開 API を新設する" in prompt and "R001: 外部公開" in prompt and "R002: ログは" in prompt
@@ -54,9 +57,16 @@ def test_add_then_find(tmp_path):
 def test_find_without_rules_does_not_sample(tmp_path):
     seen = []
     result = call(create_server(tmp_path), "find_rules", {"problem": "何か"}, reply='["R001"]', seen=seen)
-    assert result.structured_content == {"result": []}
+    assert result.structured_content == {"rules": [], "escalate": True}
     assert seen == []
     assert not (tmp_path / "usage.jsonl").exists()
+
+
+def test_find_no_match_escalates(tmp_path):
+    server = create_server(tmp_path)
+    call(server, "add_rule", {"rule": "ログは JSON で出す"})
+    result = call(server, "find_rules", {"problem": "公開 API を新設する"}, reply="[]")
+    assert result.structured_content == {"rules": [], "escalate": True}
 
 
 def test_find_rules_schema_exposes_only_problem(tmp_path):

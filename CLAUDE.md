@@ -36,9 +36,9 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 背景は `DESIGN.md` の「v0.2：答え合わせと手入れ」を参照。**k2down は記録と集計だけを行い、意味の判定はホストが行う**原則は変えない。
 - 決断 ID：`apply` / `reject` に任意の `--decision ID` を足す。ID はホストが付ける（k2down は採番しない）
 - CLI コマンドの追加
-  - `k2down decide --decision D [--predicted P] --actual A --outcome hit|miss|none`：予測と人の決断の答え合わせを記録する。`hit` / `miss` はホストが判定して渡す
-  - `k2down escalate --decision D --problem P --reason no_match|conflict [ID...]`：人に聞いたことを記録する（`conflict` のときはぶつかったルール ID を渡す）
-  - `k2down replace OLD_ID RULE`：新しいルールを足して古いルールを消し、新しい ID を返す
+  - `k2down decide --decision D [--predicted P] --actual A --outcome hit|miss|none [--problem P]`：予測と人の決断の答え合わせを記録する。`hit` / `miss` はホストが判定して渡す。同じ決断の記録が複数あれば最後のものを使う
+  - `k2down escalate --decision D --problem P --reason no_match|conflict [ID...]`：人に聞いたことを記録する（`conflict` のときはぶつかったルール ID を 2 つ以上渡す。`no_match` は ID を取らない）
+  - `k2down replace OLD_ID RULE [--source S]`：古いルールと同じ位置に新しい ID のルールを入れて古いルールを消し、新しい ID を返す
   - `k2down retire ID...`：ルールを消す
   - `k2down report [--since DATE]`：ログを集計して手入れの候補を返す（下記）
 - `report` が返すもの（数えるだけ。意味の判定はしない）
@@ -48,7 +48,8 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
   - 新しいルールの候補（outcome が `none` の決断と人の答え）
   - 日ごとの「ルールで決まった割合」（hit ÷ 記録された決断）
 - `add` に任意の `--source TEXT`（ルールの出どころ。1 行）を足す
-- MCP の `find_rules` は、当たるルールがなければ `escalate: true` を返す
+- MCP の `find_rules` は `{"rules": [...], "escalate": bool}` を返し、当たるルールがなければ `escalate: true` にする
+- 置き換え済みの ID を `apply` などに渡したら、エラーに置き換え先を添える（`usage.jsonl` の `replaced` から引く）
 - 範囲（scope）は store のディレクトリを分けて扱う（`--dir` / `K2DOWN_DIR`）。タグは作らない
 - ID は使い回さない。消したルールの番号も再発行しないよう、発行済みの最大番号を rules.json に持つ
 - v0.2 でも作らないもの：木構造の探索、推論ループ、マージの自動実行、タグ、一致・矛盾・類似の判定

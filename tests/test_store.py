@@ -98,3 +98,67 @@ def test_rejects_unknown_version(tmp_path):
     write(tmp_path / "rules.json", {**SAMPLE, "version": 2})
     with pytest.raises(RuleError):
         RuleStore(tmp_path / "rules.json")
+
+
+def test_add_rule_with_source(tmp_path):
+    store = RuleStore(tmp_path / "rules.json")
+    store.add_rule("足すより引く", source="session abc")
+    assert RuleStore(tmp_path / "rules.json").rules()[0].source == "session abc"
+    with pytest.raises(RuleError):
+        store.add_rule("x", source="1 行目\n2 行目")
+
+
+def test_retire_never_reuses_ids(tmp_path):
+    store = RuleStore(tmp_path / "rules.json")
+    for text in "abc":
+        store.add_rule(text)
+    assert [r.id for r in store.retire_rules(["R003", "R002"])] == ["R003", "R002"]
+    reloaded = RuleStore(tmp_path / "rules.json")
+    assert [r.id for r in reloaded.rules()] == ["R001"]
+    assert reloaded.add_rule("d").id == "R004"
+
+
+def test_retire_v01_file_without_issued(tmp_path):
+    write(tmp_path / "rules.json", SAMPLE)
+    store = RuleStore(tmp_path / "rules.json")
+    store.retire_rules(["R002"])
+    assert json.loads((tmp_path / "rules.json").read_text(encoding="utf-8"))["issued"] == {"N": 0, "R": 2}
+    assert RuleStore(tmp_path / "rules.json").add_rule("x").id == "R003"
+
+
+def test_retire_unknown_changes_nothing(tmp_path):
+    write(tmp_path / "rules.json", SAMPLE)
+    before = (tmp_path / "rules.json").read_text(encoding="utf-8")
+    with pytest.raises(RuleError):
+        RuleStore(tmp_path / "rules.json").retire_rules(["R001", "R999"])
+    with pytest.raises(RuleError):
+        RuleStore(tmp_path / "rules.json").retire_rules(["N000"])
+    assert (tmp_path / "rules.json").read_text(encoding="utf-8") == before
+
+
+def test_replace_keeps_position_with_new_id(tmp_path):
+    data = json.loads(json.dumps(SAMPLE))
+    data["root"]["children"].insert(0, {"id": "N001", "summary": "認証", "children": [{"id": "R005", "rule": "a"}]})
+    write(tmp_path / "rules.json", data)
+    old, new = RuleStore(tmp_path / "rules.json").replace_rule("R001", "外部公開 API の認証は OIDC に統一する", source="D9")
+    assert (old.id, new.id, new.source) == ("R001", "R006", "D9")
+    reloaded = RuleStore(tmp_path / "rules.json")
+    assert [(p, r.id) for p, r in reloaded.rules_with_parent()] == [("N001", "R005"), ("N000", "R006"), ("N000", "R002")]
+    assert reloaded.get("R001") is None
+
+
+def test_replace_unknown_or_invalid_changes_nothing(tmp_path):
+    write(tmp_path / "rules.json", SAMPLE)
+    before = (tmp_path / "rules.json").read_text(encoding="utf-8")
+    with pytest.raises(RuleError):
+        RuleStore(tmp_path / "rules.json").replace_rule("R999", "x")
+    with pytest.raises(RuleError):
+        RuleStore(tmp_path / "rules.json").replace_rule("R001", "a\nb")
+    assert (tmp_path / "rules.json").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize("issued", [[], {"X": 1}, {"R": -1}, {"R": "3"}, {"R": True}])
+def test_rejects_invalid_issued(tmp_path, issued):
+    write(tmp_path / "rules.json", {**SAMPLE, "issued": issued})
+    with pytest.raises(RuleError):
+        RuleStore(tmp_path / "rules.json")

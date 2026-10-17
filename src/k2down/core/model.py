@@ -21,11 +21,14 @@ class Rule:
     id: str
     rule: str
     note: str | None = None
+    source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {"id": self.id, "rule": self.rule}
         if self.note is not None:
             data["note"] = self.note
+        if self.source is not None:
+            data["source"] = self.source
         return data
 
 
@@ -47,13 +50,18 @@ class Node:
 
 def validate_rule_text(text: str) -> str:
     """ルール文を検証し、前後の空白を除いて返す。"""
+    return validate_line(text, "rule")
+
+
+def validate_line(text: str, name: str) -> str:
+    """空でない 1 行の文字列かを検証し、前後の空白を除いて返す。"""
     if not isinstance(text, str):
-        raise RuleError("rule must be a string")
+        raise RuleError(f"{name} must be a string")
     text = text.strip()
     if not text:
-        raise RuleError("rule must not be empty")
+        raise RuleError(f"{name} must not be empty")
     if "\n" in text or "\r" in text:
-        raise RuleError("rule must be a single line")
+        raise RuleError(f"{name} must be a single line")
     return text
 
 
@@ -80,5 +88,8 @@ def parse_item(data: Any) -> Node | Rule:
         note = data.get("note")
         if note is not None and not isinstance(note, str):
             raise RuleError(f"note of {item_id} must be a string")
-        return Rule(id=item_id, rule=validate_rule_text(data["rule"]), note=note)
+        source = data.get("source")
+        if source is not None and not isinstance(source, str):
+            raise RuleError(f"source of {item_id} must be a string")
+        return Rule(id=item_id, rule=validate_rule_text(data["rule"]), note=note, source=source)
     raise RuleError(f"tree item {item_id} has neither children nor rule")

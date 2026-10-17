@@ -8,19 +8,22 @@ import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
-from k2down.core.model import Node, Rule, RuleError, parse_item, validate_rule_text
+from k2down.core.model import Node, Rule, RuleError, parse_item, validate_line, validate_rule_text
 
 FORMAT_VERSION = 1
+ID_PREFIXES = ("N", "R")
 
 
 class RuleStore:
     """rules.json に保存されたルール木。
 
     ファイルが存在しなければ空の木として扱い、最初の保存時に作成する。
+    issued は接頭辞ごとの発行済み最大番号。消した ID を再発行しないために持つ。
     """
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = Path(path)
+        self.issued: dict[str, int] = {}
         self.root = self._load()
 
     def _load(self) -> Node:
@@ -32,6 +35,12 @@ class RuleStore:
             raise RuleError("rules.json must be an object")
         if data.get("version") != FORMAT_VERSION:
             raise RuleError(f"unsupported rules.json version: {data.get('version')!r}")
+        issued = data.get("issued", {})
+        if not isinstance(issued, dict) or not all(
+            key in ID_PREFIXES and type(value) is int and value >= 0 for key, value in issued.items()
+        ):
+            raise RuleError(f"invalid issued: {issued!r}")
+        self.issued = dict(issued)
         root = parse_item(data.get("root"))
         if not isinstance(root, Node):
             raise RuleError("root must be a node")
@@ -44,8 +53,11 @@ class RuleStore:
 
     def save(self) -> None:
         """キー順・2 スペースインデント・末尾改行を固定して書き出す。"""
+        data = {"version": FORMAT_VERSION, "root": self.root.to_dict()}
+        if self.issued:
+            data["issued"] = self.issued
         text = json.dumps(
-            {"version": FORMAT_VERSION, "root": self.root.to_dict()},
+            data,
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
@@ -74,20 +86,69 @@ class RuleStore:
                 return item
         return None
 
-    def add_rule(self, text: str, parent_id: str | None = None) -> Rule:
+    def add_rule(self, text: str, parent_id: str | None = None, source: str | None = None) -> Rule:
         """ルールを parent_id（省略時はルート）の子として追加し、保存する。"""
-        text = validate_rule_text(text)
+        rule = self._new_rule(text, source)
         parent = self.root if parent_id is None else self.get(parent_id)
         if not isinstance(parent, Node):
             raise RuleError(f"parent node not found: {parent_id}")
-        rule = Rule(id=self._next_id("R"), rule=text)
+        self._issue(rule)
         parent.children.append(rule)
         self.save()
         return rule
 
-    def _next_id(self, prefix: str) -> str:
-        numbers = [int(item.id[1:]) for item in _walk(self.root) if item.id.startswith(prefix)]
-        return f"{prefix}{max(numbers, default=0) + 1:03d}"
+    def replace_rule(self, old_id: str, text: str, source: str | None = None) -> tuple[Rule, Rule]:
+        """old_id のルールを新しい ID のルールに置き換え、保存する。(古いルール, 新しいルール) を返す。
+
+        新しいルールは古いルールと同じ位置に入る。文言の修正ではなく置き換えなので、ID は引き継がない。
+        """
+        rule = self._new_rule(text, source)
+        parent, index = self._locate(old_id)
+        self._issue(rule)
+        old = parent.children[index]
+        parent.children[index] = rule
+        self.save()
+        return old, rule
+
+    def retire_rules(self, rule_ids: list[str]) -> list[Rule]:
+        """ルールを消して保存する。存在しない ID が 1 つでもあれば何も消さずに RuleError を送出する。"""
+        rule_ids = list(dict.fromkeys(rule_ids))
+        unknown = [rule_id for rule_id in rule_ids if not isinstance(self.get(rule_id), Rule)]
+        if unknown:
+            raise RuleError(f"unknown rule id: {', '.join(unknown)}")
+        self._remember_issued()
+        retired = []
+        for rule_id in rule_ids:
+            parent, index = self._locate(rule_id)
+            retired.append(parent.children.pop(index))
+        self.save()
+        return retired
+
+    def _new_rule(self, text: str, source: str | None) -> Rule:
+        text = validate_rule_text(text)
+        if source is not None:
+            source = validate_line(source, "source")
+        return Rule(id="", rule=text, source=source)
+
+    def _locate(self, rule_id: str) -> tuple[Node, int]:
+        for parent, rule in _walk_rules(self.root):
+            if rule.id == rule_id:
+                node = self.get(parent)
+                assert isinstance(node, Node)
+                return node, node.children.index(rule)
+        raise RuleError(f"unknown rule id: {rule_id}")
+
+    def _issue(self, rule: Rule) -> None:
+        """新しい ID を発行して rule に付ける。発行済みの番号は二度と使わない。"""
+        self._remember_issued()
+        self.issued["R"] += 1
+        rule.id = f"R{self.issued['R']:03d}"
+
+    def _remember_issued(self) -> None:
+        """木に今ある ID の最大番号を issued に反映する（issued を持たない v0.1 のファイル向け）。"""
+        for prefix in ID_PREFIXES:
+            numbers = [int(item.id[1:]) for item in _walk(self.root) if item.id.startswith(prefix)]
+            self.issued[prefix] = max([self.issued.get(prefix, 0), *numbers])
 
 
 def _walk(node: Node) -> Iterator[Node | Rule]:

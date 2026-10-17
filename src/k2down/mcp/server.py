@@ -27,7 +27,10 @@ def create_server(data_dir: str | os.PathLike[str]) -> MCPServer:
     server = MCPServer(
         name="k2down",
         version=__version__,
-        instructions="Decision rules written in natural language. Use find_rules before deciding, add_rule to record a new decision.",
+        instructions=(
+            "Decision rules written in natural language. Use find_rules before deciding, add_rule to record a new decision. "
+            "When find_rules returns escalate: true, no rule applies: ask a human."
+        ),
     )
 
     def judgement(problem: str) -> Sample | None:
@@ -41,12 +44,12 @@ def create_server(data_dir: str | os.PathLike[str]) -> MCPServer:
     async def find_rules_tool(
         problem: str,
         sampled: Annotated[types.CreateMessageResult | None, Resolve(judgement)],
-    ) -> list[dict[str, Any]]:
-        """問題文に当てはまる決断ルールを返す。"""
+    ) -> dict[str, Any]:
+        """問題文に当てはまる決断ルールを返す。当てはまるルールがなければ escalate が true になる（人に聞く）。"""
         store = RuleStore(data_dir / RULES_FILE)
         log = UsageLog(data_dir / USAGE_FILE)
         rules = await find_rules(store, SampledJudge(sampled), problem, log)
-        return [rule.to_dict() for rule in rules]
+        return {"rules": [rule.to_dict() for rule in rules], "escalate": not rules}
 
     @server.tool(name="add_rule")
     def add_rule_tool(rule: str, parent_id: str | None = None) -> dict[str, str]:

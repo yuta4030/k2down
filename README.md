@@ -21,12 +21,12 @@ k2down = 決断（ke-tsu-dan）= knockdown。
 ## CLI
 
 ```sh
-git clone https://github.com/yuta4030/k2down.git
-uv tool install ./k2down   # k2down コマンドを PATH に入れる（依存ゼロなので追加のダウンロードなし）
+uv tool install git+https://github.com/yuta4030/k2down   # k2down コマンドを PATH に入れる（clone 不要・依存ゼロ）
 k2down --dir /path/to/your/rules list
 ```
 
-インストールせずに `uv run --directory /path/to/k2down k2down ...` や `python -m k2down ...`（`src` を `PYTHONPATH` に入れた場合）でも動きます。
+入れずに試すだけなら `uvx --from git+https://github.com/yuta4030/k2down k2down list` でも動きます。
+手元で clone した場合は `uv tool install ./k2down`、または `uv run --directory /path/to/k2down k2down ...` を使います。
 
 `--dir`（省略時は環境変数 `K2DOWN_DIR`、それもなければカレントディレクトリ）にある `rules.json` と `usage.jsonl` を読み書きします。ファイルがなければ最初の `add` で作られます。
 
@@ -94,8 +94,16 @@ CLI を使えない環境向けに、MCP サーバー（stdio）も用意して�
 公式 MCP SDK に依存するため、`--extra mcp` を付けたときだけ入ります。
 
 ```sh
-uv run --directory /path/to/k2down --extra mcp k2down-mcp --dir /path/to/your/rules
+uvx --from 'k2down[mcp] @ git+https://github.com/yuta4030/k2down' k2down-mcp --dir /path/to/your/rules
 ```
+
+Claude Code に登録する例：
+
+```sh
+claude mcp add k2down -- uvx --from 'k2down[mcp] @ git+https://github.com/yuta4030/k2down' k2down-mcp --dir /path/to/your/rules
+```
+
+手元で clone した場合は `uv run --directory /path/to/k2down --extra mcp k2down-mcp --dir ...` でも動きます。
 
 | ツール | 説明 |
 |---|---|

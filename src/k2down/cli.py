@@ -49,12 +49,16 @@ Workflow for agents:
   5. once the human has decided, record whether the rules predicted it (you judge hit or miss):
      k2down decide --decision D123 --predicted "<what the rules said>" --actual "<what was decided>" --outcome miss
      use --outcome none when no rule predicted it; the human's answer becomes a new rule candidate
+     add --rationale "<why the human decided so>" (one line); it is the draft of the next rule
+     if the decision cannot be undone, ask a human even when a rule applies,
+     and pass --irreversible to escalate and decide
   6. if a human overrides an applied rule:
      k2down reject --decision D123 --problem "<summary>" R003
   7. if a new, general decision was made and no rule covered it:
      k2down add "<one-line rule>" --source "<decision or session it came from>"
   8. maintenance, with a human:
-     k2down report                                 # counts and candidates to drop, rewrite, split or add
+     k2down report                                 # counts and candidates to drop, rewrite, split or add,
+                                                   # and rules whose text names an ID that is gone
      k2down replace R012 "<new rule>"              # new ID; the log maps R012 to it
      k2down retire R020                            # remove a rule; its ID is never reused
 
@@ -126,12 +130,15 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--outcome", required=True, choices=OUTCOMES, help="hit: predicted, miss: wrong, none: no prediction")
     decide.add_argument("--predicted", default=None, help="what the applied rules predicted")
     decide.add_argument("--problem", default=None, help="short summary of the problem")
+    decide.add_argument("--rationale", default=None, help='why the human decided so (one line), or "-" for stdin')
+    decide.add_argument("--irreversible", action="store_true", help="the decision cannot be undone")
 
     escalate = sub.add_parser("escalate", help="record that the rules could not decide and a human was asked", parents=[common])
     escalate.add_argument("--decision", required=True, help="decision ID chosen by the caller (no spaces)")
     escalate.add_argument("--problem", required=True, help='short summary of the problem, or "-" for stdin')
     escalate.add_argument("--reason", required=True, choices=REASONS, help="no_match: no rule applied, conflict: rules conflicted")
     escalate.add_argument("rule_ids", nargs="*", metavar="RULE_ID", help="the conflicting rules (conflict only)")
+    escalate.add_argument("--irreversible", action="store_true", help="the decision cannot be undone")
 
     report = sub.add_parser("report", help="count the usage log and list maintenance candidates", parents=[common])
     report.add_argument("--since", default=None, help="only count events on or after this date (YYYY-MM-DD)")
@@ -159,10 +166,13 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
         rules = retire(store, log, args.rule_ids)
         return {"retired": [rule.to_dict() for rule in rules]}, " ".join(["retired", *(rule.id for rule in rules)])
     if args.command == "decide":
-        fields = decide(log, args.decision, read_text(args.actual), args.outcome, args.predicted, args.problem)
+        rationale = None if args.rationale is None else read_text(args.rationale)
+        fields = decide(
+            log, args.decision, read_text(args.actual), args.outcome, args.predicted, args.problem, rationale, args.irreversible
+        )
         return {"decided": fields}, f"decided {fields['decision']} {fields['outcome']}"
     if args.command == "escalate":
-        rules = escalate(store, log, args.decision, read_text(args.problem), args.reason, args.rule_ids)
+        rules = escalate(store, log, args.decision, read_text(args.problem), args.reason, args.rule_ids, args.irreversible)
         data = {"decision": args.decision, "reason": args.reason, "rule_ids": [rule.id for rule in rules]}
         return {"escalated": data}, " ".join(["escalated", args.decision, args.reason, *data["rule_ids"]])
     if args.command == "report":
@@ -225,8 +235,17 @@ def render_report(data: dict[str, Any]) -> list[str]:
             "new rule candidates (decided with outcome none):",
             [
                 f"{c['decision']} problem: {c['problem'] or '-'} | actual: {c['actual'] or '-'}"
+                + (f" | rationale: {c['rationale']}" if c["rationale"] else "")
                 for c in data["new_rule_candidates"]
             ],
+        ),
+        (
+            "irreversible decisions (decision outcome problem):",
+            [f"{c['decision']} {c['outcome'] or '-'} {c['problem'] or '-'}" for c in data["irreversible_decisions"]],
+        ),
+        (
+            "stale references (rule text names an ID that no longer exists; ID->replacement, or ID->gone):",
+            [f"{c['id']} {' '.join(map(render_ref, c['refs']))} {c['rule']}" for c in data["stale_references"]],
         ),
         (
             "decided by rules per day (date hit/decided ratio):",
@@ -236,6 +255,10 @@ def render_report(data: dict[str, Any]) -> list[str]:
     for title, items in sections:
         lines += ["", title, *(f"  {item}" for item in items or ["(none)"])]
     return lines
+
+
+def render_ref(ref: dict[str, Any]) -> str:
+    return f"{ref['id']}->{ref['replaced_by'] or 'gone'}"
 
 
 def one_line(text: str) -> str:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from k2down.core.judge import Judge
 from k2down.core.model import Rule, RuleError
 from k2down.core.store import RuleStore
@@ -58,8 +60,13 @@ def decide(
     outcome: str,
     predicted: str | None = None,
     problem: str | None = None,
-) -> dict[str, str]:
-    """ルールからの予測と人の決断の答え合わせを記録する。一致したかどうかは呼び出し側が判定して渡す。"""
+    rationale: str | None = None,
+    irreversible: bool = False,
+) -> dict[str, Any]:
+    """ルールからの予測と人の決断の答え合わせを記録する。一致したかどうかは呼び出し側が判定して渡す。
+
+    rationale は人が決めた理由（1 行）。irreversible は取り消せない決断であることを示す。
+    """
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}: {outcome}")
     fields = {
@@ -68,6 +75,8 @@ def decide(
         "predicted": None if predicted is None else require_text(predicted, "predicted"),
         "actual": require_text(actual, "actual"),
         "outcome": outcome,
+        "rationale": None if rationale is None else require_text(rationale, "rationale"),
+        "irreversible": True if irreversible else None,
     }
     fields = {key: value for key, value in fields.items() if value is not None}
     log.write("decided", **fields)
@@ -81,6 +90,7 @@ def escalate(
     problem: str,
     reason: str,
     rule_ids: list[str] | None = None,
+    irreversible: bool = False,
 ) -> list[Rule]:
     """ルールで決まらず人に聞いたことを記録する。conflict のときはぶつかったルールを 2 つ以上渡す。"""
     decision = validate_decision(decision)
@@ -99,6 +109,7 @@ def escalate(
         problem=problem,
         reason=reason,
         rule_ids=[rule.id for rule in rules] or None,
+        irreversible=True if irreversible else None,
     )
     return rules
 

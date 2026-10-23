@@ -38,7 +38,11 @@ def test_report_counts_and_candidates(env):
     assert report["drop_candidates"] == ["R004"]
     assert report["rewrite_candidates"] == ["R001", "R002", "R003"]
     assert report["conflict_candidates"] == [{"rule_ids": ["R001", "R002"], "decisions": ["D1", "D4"]}]
-    assert report["new_rule_candidates"] == [{"decision": "D3", "problem": "新しい話", "actual": "人が決めた"}]
+    assert report["new_rule_candidates"] == [
+        {"decision": "D3", "problem": "新しい話", "actual": "人が決めた", "rationale": None}
+    ]
+    assert report["irreversible_decisions"] == []
+    assert report["stale_references"] == []
     [day] = report["daily"]
     assert (day["decided"], day["hit"], day["ratio"]) == (3, 1, 0.33)
 
@@ -117,3 +121,39 @@ def test_decision_is_written_only_when_given(env, tmp_path):
     record(store, log, "applied", ["R001"], "p", decision="D1")
     lines = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text(encoding="utf-8").splitlines()]
     assert "decision" not in lines[0] and lines[1]["decision"] == "D1"
+
+
+def test_rationale_and_irreversible(env):
+    store, log = env
+    escalate(store, log, "D1", "DB を消すか", "no_match", irreversible=True)
+    decide(log, "D1", "消さない", "none", rationale="戻せないので慎重に", irreversible=True)
+    escalate(store, log, "D2", "まだ決めていない", "no_match", irreversible=True)
+    decide(log, "D3", "x", "none")
+
+    events = log.read()
+    assert events[0]["irreversible"] is True and "irreversible" not in events[3]
+    report = build_report(store.rules(), events)
+    assert report["new_rule_candidates"][0]["rationale"] == "戻せないので慎重に"
+    assert report["new_rule_candidates"][1]["rationale"] is None
+    assert report["irreversible_decisions"] == [
+        {"decision": "D1", "problem": "DB を消すか", "outcome": "none"},
+        {"decision": "D2", "problem": "まだ決めていない", "outcome": None},
+    ]
+
+
+def test_stale_references(env):
+    store, log = env
+    store.add_rule("この場面ではR001をR002より優先する。R003とR0011は別")
+    replace(store, log, "R001", "足すより引く（改）")  # R006
+    replace(store, log, "R006", "足すより引く（改2）")  # R007
+    retire(store, log, ["R002"])
+
+    # 置き換えは期間の外でもたどる。
+    report = build_report(store.rules(), log.read(), since=date(2999, 1, 1))
+    assert report["stale_references"] == [
+        {
+            "id": "R005",
+            "rule": "この場面ではR001をR002より優先する。R003とR0011は別",
+            "refs": [{"id": "R001", "replaced_by": "R007"}, {"id": "R002", "replaced_by": None}, {"id": "R0011", "replaced_by": None}],
+        }
+    ]

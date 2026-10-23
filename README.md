@@ -36,8 +36,8 @@ k2down --dir /path/to/your/rules list
 | `k2down add RULE [--parent N001] [--source S]` | 1 行ルールを追加する。`--source` は出どころ | `R003` |
 | `k2down apply [--decision D] --problem P ID...` | ルールを問題に適用したことを記録する | `applied R001 R003` |
 | `k2down reject [--decision D] --problem P ID...` | 適用したルールを人間が却下したことを記録する | `rejected R003` |
-| `k2down escalate --decision D --problem P --reason no_match\|conflict [ID...]` | ルールで決まらず人に聞いたことを記録する。`conflict` はぶつかったルールを 2 つ以上渡す | `escalated D12 conflict R003 R017` |
-| `k2down decide --decision D [--predicted P] --actual A --outcome hit\|miss\|none [--problem P]` | 予測と人の決断の答え合わせを記録する | `decided D12 miss` |
+| `k2down escalate --decision D --problem P --reason no_match\|conflict [--irreversible] [ID...]` | ルールで決まらず人に聞いたことを記録する。`conflict` はぶつかったルールを 2 つ以上渡す | `escalated D12 conflict R003 R017` |
+| `k2down decide --decision D [--predicted P] --actual A --outcome hit\|miss\|none [--problem P] [--rationale R] [--irreversible]` | 予測と人の決断の答え合わせを記録する | `decided D12 miss` |
 | `k2down replace ID RULE [--source S]` | ルールを新しい ID のルールに置き換える | `R031` |
 | `k2down retire ID...` | ルールを消す | `retired R020` |
 | `k2down report [--since YYYY-MM-DD]` | ログを集計し、手入れの候補を返す | 下記 |
@@ -62,7 +62,8 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 
 - **決断 ID**：ホストが決断ごとに空白なしの短い ID（例：`D12`）を付け、`apply` / `reject` / `escalate` / `decide` に渡します。同じ ID の記録がつながり、ルールごとの当たり率が出ます
 - **答え合わせ**：`decide --outcome` は `hit`（ルールの予測どおり）/ `miss`（外れ）/ `none`（ルールで予測できず人が決めた）。一致したかどうかはホストが判定します。同じ決断を記録し直したときは最後の記録が使われます
-- **人に聞く**：どのルールも当たらない（`no_match`）か、当たったルールがぶつかった（`conflict`）ら `escalate` を記録して人に聞き、答えを `decide --outcome none` で残します
+- **人に聞く**：どのルールも当たらない（`no_match`）か、当たったルールがぶつかった（`conflict`）ら `escalate` を記録して人に聞き、答えを `decide --outcome none` で残します。人が決めた理由は `--rationale` で 1 行残せます（次のルールの下書きになります）
+- **取り消せない決断**：`escalate` / `decide` に `--irreversible` を付けます。不可逆な決断は、ルールが当たっていても人に確認してください
 - **置き換えと削除**：`replace` は同じ位置に新しい ID でルールを入れ、古いルールを消して `usage.jsonl` に「旧 ID → 新 ID」を残します。消した ID は二度と発行しません。置き換え済みの ID を指定すると、エラーに置き換え先が出ます
 - **範囲**：役や人ごとにルールを分けたいときは、store のディレクトリを分けて `--dir` / `K2DOWN_DIR` で切り替えます
 
@@ -71,7 +72,9 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 - ルールごとの applied / hit / miss / rejected の件数
 - 落とす候補（一度も当たっていない）、書き直す候補（miss と rejected が多い順）
 - ぶつかる組の候補（同じ決断で同時に当たって外れた組と、`conflict` で人に聞いた組）
-- 新しいルールの候補（`none` の決断と人の答え）
+- 新しいルールの候補（`none` の決断と人の答え、理由があれば理由）
+- 取り消せない決断の一覧
+- 参照切れ（ルール本文に書かれた ID のうち、置き換え・削除でもう無いもの。置き換え先を添えます）
 - 日ごとの「ルールで決まった割合」（hit ÷ 記録された決断）
 
 ### AI エージェントに使わせる
@@ -83,7 +86,8 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 設計判断の前に `k2down list` で決断ルールを確認し、当てはまるものに従う。
 決断ごとに短い ID（例：D12）を付け、従ったルールは `k2down apply --decision D12 --problem "<問題の要約>" <ID...>` で記録する。
 どのルールも当たらないか、ルール同士がぶつかったら `k2down escalate` を記録して人間に聞く。
-人間が決めたら `k2down decide` で予測が当たったか（hit / miss / none）を記録する。
+人間が決めたら `k2down decide` で予測が当たったか（hit / miss / none）を記録する。人間が理由を言ったら `--rationale` で残す。
+取り消せない決断は、ルールが当たっても人間に確認し、`--irreversible` を付けて記録する。
 ルールが無い新しい汎用的な判断をしたら、人間に確認してから `k2down add "<1 行ルール>" --source D12` で追加する。
 使い方の詳細は `k2down --help`。
 ```
@@ -156,6 +160,7 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 {"ts": "2026-10-16T09:00:00+09:00", "event": "applied", "rule_id": "R001", "problem": "問題文の要約", "decision": "D12"}
 {"ts": "...", "event": "rejected", "rule_id": "R001", "problem": "..."}
 {"ts": "...", "event": "decided", "decision": "D12", "predicted": "A", "actual": "B", "outcome": "miss"}
+{"ts": "...", "event": "decided", "decision": "D14", "actual": "C", "outcome": "none", "rationale": "戻せないので慎重に", "irreversible": true}
 {"ts": "...", "event": "escalated", "decision": "D13", "problem": "...", "reason": "conflict", "rule_ids": ["R003", "R017"]}
 {"ts": "...", "event": "replaced", "rule_id": "R012", "replaced_by": "R031"}
 {"ts": "...", "event": "retired", "rule_id": "R020"}

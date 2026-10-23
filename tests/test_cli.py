@@ -228,3 +228,25 @@ def test_new_command_errors(k2, tmp_path, args):
     assert code == 1 and out is None and "error" in err
     assert not (tmp_path / "usage.jsonl").exists()
     assert len(k2("list")[1]["rules"]) == 2
+
+
+def test_rationale_irreversible_and_stale_text(k2_text, tmp_path):
+    k2_text("add", "a")
+    k2_text("add", "R001 を優先する")
+    assert k2_text("escalate", "--decision", "D1", "--problem", "q", "--reason", "no_match", "--irreversible") == (
+        0,
+        "escalated D1 no_match\n",
+        "",
+    )
+    assert k2_text(
+        "decide", "--decision", "D1", "--actual", "x", "--outcome", "none", "--rationale", "-", "--irreversible", stdin="戻せない\n"
+    ) == (0, "decided D1 none\n", "")
+    k2_text("replace", "R001", "a2")
+    decided = read_usage(tmp_path)[1]
+    assert (decided["rationale"], decided["irreversible"]) == ("戻せない", True)
+
+    code, out, _ = k2_text("report")
+    assert code == 0
+    assert "  D1 problem: q | actual: x | rationale: 戻せない\n" in out
+    assert "irreversible decisions (decision outcome problem):\n  D1 none q\n" in out
+    assert "stale references (rule text names an ID that no longer exists; ID->replacement, or ID->gone):\n  R002 R001->R003 R001 を優先する" in out

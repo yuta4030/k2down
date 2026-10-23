@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from datetime import date
 from itertools import combinations
@@ -13,10 +14,16 @@ from typing import Any
 from k2down.core.model import Rule
 
 COUNTS = ("applied", "hit", "miss", "rejected")
+# 本文に書かれたルール ID（「R003 を R017 より優先する」など）。日本語に続いても拾えるよう英数字の境目で切る。
+RULE_REF = re.compile(r"(?<![A-Za-z0-9])R\d{3,}(?![0-9])")
 
 
 def build_report(rules: list[Rule], records: list[dict[str, Any]], since: date | None = None) -> dict[str, Any]:
     """現在のルールとログから集計結果を返す。since を渡すとその日以降のイベントだけを数える。"""
+    # 置き換えの対応は期間に関係なくたどれるよう、絞り込む前に引いておく。
+    replaced_by = {
+        r["rule_id"]: r["replaced_by"] for r in records if r.get("event") == "replaced" and "rule_id" in r and "replaced_by" in r
+    }
     if since is not None:
         records = [r for r in records if _day(r) is not None and _day(r) >= since.isoformat()]
 
@@ -25,11 +32,14 @@ def build_report(rules: list[Rule], records: list[dict[str, Any]], since: date |
     problems: dict[str, str] = {}
     decided: dict[str, dict[str, Any]] = {}
     escalated: dict[str, dict[str, Any]] = {}
+    irreversible: list[str] = []
     counts: dict[str, Counter[str]] = defaultdict(Counter)
     for record in records:
         event, decision, rule_id = record.get("event"), record.get("decision"), record.get("rule_id")
         if decision and record.get("problem"):
             problems.setdefault(decision, record["problem"])
+        if decision and record.get("irreversible") and decision not in irreversible:
+            irreversible.append(decision)
         if event in ("applied", "rejected") and rule_id:
             counts[rule_id][event] += 1
             if event == "applied" and decision and rule_id not in applied_in[decision]:
@@ -88,15 +98,43 @@ def build_report(rules: list[Rule], records: list[dict[str, Any]], since: date |
         ],
         "conflict_candidates": conflicts,
         "new_rule_candidates": [
-            {"decision": decision, "problem": problems.get(decision), "actual": record.get("actual")}
+            {
+                "decision": decision,
+                "problem": problems.get(decision),
+                "actual": record.get("actual"),
+                "rationale": record.get("rationale"),
+            }
             for decision, record in decided.items()
             if record.get("outcome") == "none"
         ],
+        "irreversible_decisions": [
+            {"decision": decision, "problem": problems.get(decision), "outcome": decided.get(decision, {}).get("outcome")}
+            for decision in irreversible
+        ],
+        "stale_references": _stale_references(rules, current, replaced_by),
         "daily": [
             {"date": day, "decided": c["decided"], "hit": c["hit"], "ratio": round(c["hit"] / c["decided"], 2)}
             for day, c in sorted(days.items())
         ],
     }
+
+
+def _stale_references(rules: list[Rule], current: set[str], replaced_by: dict[str, str]) -> list[dict[str, Any]]:
+    """本文に書かれた ID のうち、もう無いものを返す。置き換え済みなら最後の置き換え先を添える。"""
+    stale = []
+    for rule in rules:
+        refs = []
+        for ref in dict.fromkeys(RULE_REF.findall(rule.rule)):
+            if ref in current:
+                continue
+            target, seen = ref, {ref}
+            while target in replaced_by and replaced_by[target] not in seen:
+                target = replaced_by[target]
+                seen.add(target)
+            refs.append({"id": ref, "replaced_by": None if target == ref else target})
+        if refs:
+            stale.append({"id": rule.id, "rule": rule.rule, "refs": refs})
+    return stale
 
 
 def _day(record: dict[str, Any]) -> str | None:

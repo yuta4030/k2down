@@ -29,6 +29,7 @@ from k2down.core import (
     decide,
     decline,
     escalate,
+    locked,
     propose,
     record,
     replace,
@@ -40,6 +41,8 @@ from k2down.core.service import OUTCOMES, REASONS
 RULES_FILE = "rules.json"
 PROPOSALS_FILE = "proposals.json"
 USAGE_FILE = "usage.jsonl"
+# ファイルを書かないコマンド。これ以外は store のディレクトリのロックを取ってから実行する。
+READ_ONLY = ("list", "proposals", "report")
 
 DESCRIPTION = """\
 k2down: decision rules written in natural language, one line each.
@@ -89,6 +92,10 @@ Output format (default):
   escalate  "escalated <DECISION> <REASON> [<ID>...]"
   report    sections of plain text; see the headings
   errors    "error: <message>" on stderr, exit status 1. Nothing is recorded on error.
+
+Rule IDs look like R-k7m2q (R001 from older stores stays valid), proposal IDs like P-3xq9a.
+Copy them exactly: a mistyped ID is an error, not another rule.
+Commands that write wait for a lock on the store directory (.k2down.lock), so agents can run k2down at the same time.
 Pass --json to get JSON instead (errors become {"error": "..."} on stderr).
 Pass "-" instead of a text argument to read it from stdin.
 The --decision ID is yours to choose (no spaces). It links apply, reject, escalate, decide and proposals.
@@ -364,7 +371,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     as_json = getattr(args, "json", False)
     try:
-        data, text = run(args)
+        if args.command in READ_ONLY:
+            data, text = run(args)
+        else:
+            with locked(args.dir):
+                data, text = run(args)
     except (RuleError, ValueError, OSError) as e:
         message = json.dumps({"error": str(e)}, ensure_ascii=False) if as_json else f"error: {one_line(str(e))}"
         print(message, file=sys.stderr)

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import re
+import secrets
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_ID = re.compile(r"^R\d{3,}$")
-PROPOSAL_ID = re.compile(r"^P\d{3,}$")
+# ID は接頭辞 + "-" + ランダムな 5 文字。連番だと書き間違いが別の実在する ID に当たり、
+# 同時に書くエージェントやブランチどうしで番号がぶつかるため。
+# 文字は Crockford base32 の小文字（見間違えやすい i l o u を除く）。v0.2 までの連番のルール ID（R001）も有効。
+ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
+ID_LENGTH = 5
+RULE_ID = re.compile(rf"^R(\d{{3,}}|-[{ID_ALPHABET}]{{{ID_LENGTH}}})$")
+PROPOSAL_ID = re.compile(rf"^P-[{ID_ALPHABET}]{{{ID_LENGTH}}}$")
 PROPOSAL_KINDS = ("add", "retire", "replace")
 
 
@@ -63,6 +70,18 @@ class Proposal:
     def same_content(self, other: Proposal) -> bool:
         """中身（種類・対象・文言・範囲）が同じか。出どころは比べない。"""
         return (self.kind, self.rule_id, self.rule, self.scopes) == (other.kind, other.rule_id, other.rule, other.scopes)
+
+
+def random_id(prefix: str) -> str:
+    return f"{prefix}-{''.join(secrets.choice(ID_ALPHABET) for _ in range(ID_LENGTH))}"
+
+
+def new_id(prefix: str, taken: Collection[str]) -> str:
+    """taken に含まれない新しい ID を返す。taken には今ある ID とログに出たことのある ID を渡す。"""
+    while True:
+        candidate = random_id(prefix)
+        if candidate not in taken:
+            return candidate
 
 
 def validate_rule_text(text: str) -> str:

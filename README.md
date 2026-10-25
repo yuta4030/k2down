@@ -34,33 +34,43 @@ k2down --dir /path/to/your/rules list
 |---|---|---|
 | `k2down list [--scope S]...` | ルールを返す。`--scope` を付けるとその範囲と全体共通のルールだけ | 1 行 1 ルール（下記） |
 | `k2down scope ID... [--add S]... [--remove S]...` | ルールの範囲を足し引きする（ID は変わらない） | 変えたルール |
-| `k2down add RULE [--scope S]... [--decision D] [--source S]` | 1 行ルールを追加する | `R003` |
-| `k2down apply [--decision D] --problem P ID...` | ルールを問題に適用したことを記録する | `applied R001 R003` |
-| `k2down reject [--decision D] --problem P ID...` | 適用したルールを人間が却下したことを記録する | `rejected R003` |
-| `k2down escalate --decision D --problem P --reason no_match\|conflict [ID...]` | ルールで決まらず人に聞いたことを記録する。`conflict` はぶつかったルールを 2 つ以上渡す | `escalated D12 conflict R003 R017` |
+| `k2down add RULE [--scope S]... [--decision D] [--source S]` | 1 行ルールを追加する | `R-h4n8c` |
+| `k2down apply [--decision D] --problem P ID...` | ルールを問題に適用したことを記録する | `applied R-k7m2q R-h4n8c` |
+| `k2down reject [--decision D] --problem P ID...` | 適用したルールを人間が却下したことを記録する | `rejected R-h4n8c` |
+| `k2down escalate --decision D --problem P --reason no_match\|conflict [ID...]` | ルールで決まらず人に聞いたことを記録する。`conflict` はぶつかったルールを 2 つ以上渡す | `escalated D12 conflict R-h4n8c R-b9t3e` |
 | `k2down decide --decision D [--predicted P] --actual A --outcome hit\|miss\|none [--problem P]` | 予測と人の決断の答え合わせを記録する | `decided D12 miss` |
-| `k2down replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを新しい ID のルールに置き換える。`--scope` を省くと範囲を引き継ぐ | `R031` |
-| `k2down retire ID...` | ルールを消す | `retired R020` |
-| `k2down propose add RULE [--scope S]... [--decision D] [--source S]` | ルールを足す提案を出す | `P001` |
-| `k2down propose retire ID [--decision D] [--source S]` | ルールを外す提案を出す | `P002` |
-| `k2down propose replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを置き換える提案を出す | `P003` |
-| `k2down proposals` | 決まっていない提案を返す | `P001 add <本文> [decision: I3-2]` |
-| `k2down accept PID...` | 提案を受け入れ、ルールに反映する | `accepted P001 add R032` |
-| `k2down decline PID... [--reason R]` | 提案を却下する（履歴に残る） | `declined P002` |
+| `k2down replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを新しい ID のルールに置き換える。`--scope` を省くと範囲を引き継ぐ | `R-z4k6h` |
+| `k2down retire ID...` | ルールを消す | `retired R-m5r7f` |
+| `k2down propose add RULE [--scope S]... [--decision D] [--source S]` | ルールを足す提案を出す | `P-a2m4n` |
+| `k2down propose retire ID [--decision D] [--source S]` | ルールを外す提案を出す | `P-c5q8p` |
+| `k2down propose replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを置き換える提案を出す | `P-e7t2r` |
+| `k2down proposals` | 決まっていない提案を返す | `P-a2m4n add <本文> [decision: I3-2]` |
+| `k2down accept PID...` | 提案を受け入れ、ルールに反映する | `accepted P-a2m4n add R-v7d3j` |
+| `k2down decline PID... [--reason R]` | 提案を却下する（履歴に残る） | `declined P-c5q8p` |
 | `k2down report [--since YYYY-MM-DD] [--min-decisions N]` | ログを集計し、手入れの候補を返す | 下記 |
 
 `list` の出力は 1 行 1 ルールの「ID␣本文」で、範囲・決断 ID・出どころ・note があれば後ろに付きます。
 
 ```text
-R001 外部公開 API の認証は OAuth に統一する [scopes: implement plan]
-R002 社内バッチ間の認証はサービスアカウントで行う [decision: I1-4] [note: notes/R002.md]
-R003 実装の細部はエージェントが決める
+R-k7m2q 外部公開 API の認証は OAuth に統一する [scopes: implement plan]
+R-3xq9a 社内バッチ間の認証はサービスアカウントで行う [decision: I1-4] [note: notes/R-3xq9a.md]
+R-h4n8c 実装の細部はエージェントが決める
 ```
 
 - 既定の出力は、LLM が読みやすくトークンの少ないプレーンテキストです（同じ内容の JSON の半分以下）
 - `--json` を付けると JSON を返します（`list` は `{"rules": [{"id", "rule", "scopes"?, "decision"?, "source"?, "note"?}], "scopes": [使われている範囲]}`）
 - エラー時は終了コード 1 で、stderr に `error: ...`（`--json` なら `{"error": "..."}`）を書きます。存在しない ID を指定したときは何も記録しません
 - テキスト引数に `-` を渡すと stdin から読みます
+- ID は連番ではなくランダムです。書き間違えた ID はほぼ確実に「ない ID」としてエラーになり、別のルールに記録されることはありません。同時に動くエージェントやブランチどうしでも ID がぶつかりません
+
+### 同時に使う
+
+ファイルを書き換えるコマンドは、store のディレクトリに `.k2down.lock` を作ってから実行し、終わったら消します。複数のエージェントが同時に k2down を呼んでも、書き込みが混ざったり消えたりしません。
+
+- ロックが取れなければ少し待って取り直し、10 秒たっても取れなければエラーになります
+- プロセスが落ちて残ったロックは、30 秒たてば古いものとみなして取り除きます
+- 読むだけのコマンド（`list` / `proposals` / `report`）はロックを待ちません
+- store を git で管理しているなら、`.k2down.lock` を `.gitignore` に入れてください
 
 ### 答え合わせと手入れ
 
@@ -77,7 +87,7 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 
 ルールを変えるとき、エージェントは直接 `add` / `replace` / `retire` するかわりに提案を出し、人が受け入れたものだけをルールにできます。
 
-- 提案は足す（`add`）・外す（`retire`）・置き換える（`replace`）の 3 種類。ID は `P` + 3 桁で、使い回しません
+- 提案は足す（`add`）・外す（`retire`）・置き換える（`replace`）の 3 種類。ID は `P-` + ランダムな 5 文字で、使い回しません
 - 中身（種類・対象のルール・文言・範囲）が同じ提案が残っていれば、新しく振らずにその ID を返します。再送しても増えません。同じかどうかは文字列の一致で見ます（似ているかの判定はしません）
 - `accept` は提案どおりに `add` / `retire` / `replace` を行います。受け入れられない提案（対象のルールがもうない、同じルールを対象にした提案を一度に受け入れる）が 1 つでもあれば、何も変えずにエラーになります
 - 決まった提案は `proposals.json` から消え、出した・受け入れた・却下した記録が `usage.jsonl` に残ります。決まった提案の ID を渡すと、エラーにどう決まったかが出ます
@@ -146,18 +156,15 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 
 ```json
 {
-  "issued": {
-    "R": 2
-  },
   "rules": [
     {
-      "id": "R001",
+      "id": "R-k7m2q",
       "rule": "外部公開 API の認証は OAuth に統一する",
       "scopes": ["implement", "plan"]
     },
     {
       "decision": "I1-4",
-      "id": "R002",
+      "id": "R-3xq9a",
       "rule": "社内バッチ間の認証はサービスアカウントで行う"
     }
   ],
@@ -165,7 +172,7 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 }
 ```
 
-- ルールの ID は `R` + 3 桁。一度採番したら変えず、消した ID も再発行しない。`issued` に発行済みの最大番号を持つ
+- ルールの ID は `R-` + ランダムな 5 文字（数字と、見間違えやすい i l o u を除く英小文字）。一度採番したら変えず、消した ID も再発行しない（`usage.jsonl` に出たことのある ID を避けて振る）。v0.2 までの連番の ID（`R001`）もそのまま有効
 - `scopes` は任意。範囲の名前（空白なし）の一覧で、なければ全体共通
 - `decision` は任意。ルールのもとになった決断 ID
 - `source` は任意。ID で表せない出どころの自由記述（1 行）
@@ -179,9 +186,8 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 
 ```json
 {
-  "issued": {"P": 3},
   "proposals": [
-    {"decision": "I3-2", "id": "P003", "kind": "replace", "rule": "引けるなら引く", "rule_id": "R001"}
+    {"decision": "I3-2", "id": "P-e7t2r", "kind": "replace", "rule": "引けるなら引く", "rule_id": "R-k7m2q"}
   ],
   "version": 1
 }
@@ -192,16 +198,16 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 1 行 1 イベントの追記専用ログです。`decision` はどのイベントでも任意です。
 
 ```json
-{"ts": "2026-10-16T09:00:00+09:00", "event": "applied", "rule_id": "R001", "problem": "問題文の要約", "decision": "D12"}
-{"ts": "...", "event": "rejected", "rule_id": "R001", "problem": "..."}
+{"ts": "2026-10-16T09:00:00+09:00", "event": "applied", "rule_id": "R-k7m2q", "problem": "問題文の要約", "decision": "D12"}
+{"ts": "...", "event": "rejected", "rule_id": "R-k7m2q", "problem": "..."}
 {"ts": "...", "event": "decided", "decision": "D12", "predicted": "A", "actual": "B", "outcome": "miss"}
-{"ts": "...", "event": "escalated", "decision": "D13", "problem": "...", "reason": "conflict", "rule_ids": ["R003", "R017"]}
-{"ts": "...", "event": "added", "rule_id": "R030", "decision": "D12"}
-{"ts": "...", "event": "replaced", "rule_id": "R012", "replaced_by": "R031", "proposal": "P003"}
-{"ts": "...", "event": "retired", "rule_id": "R020"}
-{"ts": "...", "event": "proposed", "proposal": "P003", "kind": "replace", "rule_id": "R012", "rule": "...", "decision": "D12"}
-{"ts": "...", "event": "accepted", "proposal": "P003"}
-{"ts": "...", "event": "declined", "proposal": "P004", "reason": "..."}
+{"ts": "...", "event": "escalated", "decision": "D13", "problem": "...", "reason": "conflict", "rule_ids": ["R-h4n8c", "R-b9t3e"]}
+{"ts": "...", "event": "added", "rule_id": "R-x8c2g", "decision": "D12"}
+{"ts": "...", "event": "replaced", "rule_id": "R-p2w6d", "replaced_by": "R-z4k6h", "proposal": "P-e7t2r"}
+{"ts": "...", "event": "retired", "rule_id": "R-m5r7f"}
+{"ts": "...", "event": "proposed", "proposal": "P-e7t2r", "kind": "replace", "rule_id": "R-p2w6d", "rule": "...", "decision": "D12"}
+{"ts": "...", "event": "accepted", "proposal": "P-e7t2r"}
+{"ts": "...", "event": "declined", "proposal": "P-g9w5s", "reason": "..."}
 ```
 
 `added` / `replaced` / `retired` は、提案を受け入れて行ったときに `proposal` を持ちます。

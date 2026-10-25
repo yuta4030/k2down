@@ -15,7 +15,7 @@ from mcp import types
 from mcp.server.mcpserver import MCPServer, Resolve, Sample
 
 from k2down import __version__
-from k2down.core import RuleStore, UsageLog, add, find_rules
+from k2down.core import RuleStore, UsageLog, add, find_rules, locked
 from k2down.mcp.judge import SampledJudge, sampling_request
 
 RULES_FILE = "rules.json"
@@ -50,16 +50,18 @@ def create_server(data_dir: str | os.PathLike[str]) -> MCPServer:
 
         scopes を渡すと、その範囲のルールと全体共通のルールだけを見る。
         """
-        store = RuleStore(data_dir / RULES_FILE)
-        log = UsageLog(data_dir / USAGE_FILE)
-        rules = await find_rules(store, SampledJudge(sampled), problem, log, scopes)
+        with locked(data_dir):
+            store = RuleStore(data_dir / RULES_FILE)
+            log = UsageLog(data_dir / USAGE_FILE)
+            rules = await find_rules(store, SampledJudge(sampled), problem, log, scopes)
         return {"rules": [rule.to_dict() for rule in rules], "escalate": not rules}
 
     @server.tool(name="add_rule")
     def add_rule_tool(rule: str, scopes: list[str] | None = None) -> dict[str, str]:
         """自然言語 1 行の決断ルールを追加し、新しい ID を返す。scopes を省くと全体共通のルールになる。"""
-        store = RuleStore(data_dir / RULES_FILE)
-        added = add(store, UsageLog(data_dir / USAGE_FILE), rule, scopes)
+        with locked(data_dir):
+            store = RuleStore(data_dir / RULES_FILE)
+            added = add(store, UsageLog(data_dir / USAGE_FILE), rule, scopes)
         return {"id": added.id}
 
     return server

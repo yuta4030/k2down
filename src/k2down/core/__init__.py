@@ -4,6 +4,7 @@
 """
 
 from k2down.core.judge import Judge
+from k2down.core.lock import LockError, locked
 from k2down.core.model import Proposal, Rule, RuleError
 from k2down.core.report import build_report
 from k2down.core.service import accept, add, decide, decline, escalate, find_rules, propose, record, replace, retire
@@ -12,6 +13,7 @@ from k2down.core.usage import UsageLog
 
 __all__ = [
     "Judge",
+    "LockError",
     "Proposal",
     "ProposalStore",
     "Rule",
@@ -25,6 +27,7 @@ __all__ = [
     "decline",
     "escalate",
     "find_rules",
+    "locked",
     "propose",
     "record",
     "replace",

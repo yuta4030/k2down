@@ -80,6 +80,18 @@ class UsageLog:
         }
 
 
+    def ids(self) -> set[str]:
+        """ログに出たことのあるルール ID と提案 ID。消したものも含め、再発行しないために使う。"""
+        found: set[str] = set()
+        for record in self.read():
+            for key in ("rule_id", "replaced_by", "proposal"):
+                if isinstance(record.get(key), str):
+                    found.add(record[key])
+            if isinstance(record.get("rule_ids"), list):
+                found.update(item for item in record["rule_ids"] if isinstance(item, str))
+        return found
+
+
 def summarize(problem: str) -> str:
     """問題文を 1 行に詰め、長ければ切り詰める。"""
     text = " ".join(problem.split())

@@ -37,21 +37,21 @@ def payload(result):
 
 def test_add_then_find(tmp_path):
     server = create_server(tmp_path)
-    assert payload(call(server, "add_rule", {"rule": "外部公開 API の認証は OAuth に統一する"})) == {"id": "R001"}
-    assert payload(call(server, "add_rule", {"rule": "ログは JSON で出す"})) == {"id": "R002"}
+    assert payload(call(server, "add_rule", {"rule": "外部公開 API の認証は OAuth に統一する"})) == {"id": "R-00001"}
+    assert payload(call(server, "add_rule", {"rule": "ログは JSON で出す"})) == {"id": "R-00002"}
 
     seen = []
-    result = call(server, "find_rules", {"problem": "公開 API を新設する"}, reply='答え: ["R001"]', seen=seen)
+    result = call(server, "find_rules", {"problem": "公開 API を新設する"}, reply='答え: ["R-00001"]', seen=seen)
     assert result.structured_content == {
-        "rules": [{"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"}],
+        "rules": [{"id": "R-00001", "rule": "外部公開 API の認証は OAuth に統一する"}],
         "escalate": False,
     }
 
     prompt = seen[0].messages[0].content.text
-    assert "公開 API を新設する" in prompt and "R001: 外部公開" in prompt and "R002: ログは" in prompt
+    assert "公開 API を新設する" in prompt and "R-00001: 外部公開" in prompt and "R-00002: ログは" in prompt
 
     usage = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert [(u["event"], u["rule_id"]) for u in usage] == [("added", "R001"), ("added", "R002"), ("applied", "R001")]
+    assert [(u["event"], u["rule_id"]) for u in usage] == [("added", "R-00001"), ("added", "R-00002"), ("applied", "R-00001")]
 
 
 def test_find_rules_in_scopes(tmp_path):
@@ -61,15 +61,15 @@ def test_find_rules_in_scopes(tmp_path):
     call(server, "add_rule", {"rule": "実装のルール", "scopes": ["implement"]})
 
     seen = []
-    result = call(server, "find_rules", {"problem": "p", "scopes": ["implement"]}, reply='["R001", "R003"]', seen=seen)
-    assert [r["id"] for r in result.structured_content["rules"]] == ["R003"]
+    result = call(server, "find_rules", {"problem": "p", "scopes": ["implement"]}, reply='["R-00001", "R-00003"]', seen=seen)
+    assert [r["id"] for r in result.structured_content["rules"]] == ["R-00003"]
     prompt = seen[0].messages[0].content.text
-    assert "R001" not in prompt and "R002: 共通" in prompt and "R003: 実装" in prompt
+    assert "R-00001" not in prompt and "R-00002: 共通" in prompt and "R-00003: 実装" in prompt
 
 
 def test_find_without_rules_does_not_sample(tmp_path):
     seen = []
-    result = call(create_server(tmp_path), "find_rules", {"problem": "何か"}, reply='["R001"]', seen=seen)
+    result = call(create_server(tmp_path), "find_rules", {"problem": "何か"}, reply='["R-00001"]', seen=seen)
     assert result.structured_content == {"rules": [], "escalate": True}
     assert seen == []
     assert not (tmp_path / "usage.jsonl").exists()
@@ -101,11 +101,12 @@ def test_add_rule_rejects_multiline(tmp_path):
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('["R001", "R003"]', ["R001", "R003"]),
-        ("```json\n[\"R002\"]\n```", ["R002"]),
+        ('["R-00001", "R-00003"]', ["R-00001", "R-00003"]),
+        ("```json\n[\"R-00002\"]\n```", ["R-00002"]),
         ("[]", []),
-        ("R004 と R010 が該当", ["R004", "R010"]),
-        ('["R001", 3, "x"]', ["R001"]),
+        ("R-00004 と R-00010 が該当", ["R-00004", "R-00010"]),
+        ("R004 と R-k7m2q が該当、R-k7m2i と R-ab は違う", ["R004", "R-k7m2q"]),
+        ('["R-00001", 3, "x"]', ["R-00001"]),
     ],
 )
 def test_parse_ids(text, expected):

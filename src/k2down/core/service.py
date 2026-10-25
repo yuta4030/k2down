@@ -122,7 +122,7 @@ def add(
     """ルールを足し、足したことをログに残す（report が足してからの判断の数を数えるのに使う）。"""
     if decision is not None:
         decision = validate_decision(decision)
-    rule = store.add_rule(text, scopes, decision, source)
+    rule = store.add_rule(text, scopes, decision, source, taken=log.ids())
     log.write("added", rule_id=rule.id, decision=decision, proposal=proposal)
     return rule
 
@@ -141,7 +141,7 @@ def replace(
     if decision is not None:
         decision = validate_decision(decision)
     lookup_rules(store, log, [old_id])
-    old, new = store.replace_rule(old_id, text, scopes, decision, source)
+    old, new = store.replace_rule(old_id, text, scopes, decision, source, taken=log.ids())
     log.write("replaced", rule_id=old.id, replaced_by=new.id, decision=decision, proposal=proposal)
     return old, new
 
@@ -178,7 +178,7 @@ def propose(
     same = proposals.find_same(proposal)
     if same is not None:
         return same, False
-    proposals.add(proposal)
+    proposals.add(proposal, taken=log.ids())
     data = proposal.to_dict()
     log.write("proposed", proposal=data.pop("id"), **data)
     return proposal, True

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from k2down.core.model import (
     Proposal,
     Rule,
     RuleError,
+    new_id,
     normalize_scopes,
     optional_line,
     optional_token,
@@ -29,13 +30,13 @@ class RuleStore:
     """rules.json に保存されたルールの一覧。
 
     ファイルが存在しなければ空として扱い、最初の保存時に作成する。
-    issued は発行済みの最大番号。消した ID を再発行しないために持つ。
     v1（ルール木）のファイルも読める。葉を木の順に並べた一覧として扱い、次の保存で v2 になる。
+    新しいルールにはランダムな ID を振る。taken を渡すと、それとも被らない ID にする
+    （消したルールの ID を再発行しないよう、呼び出し側はログに出た ID を渡す）。
     """
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = Path(path)
-        self.issued = 0
         self.items = self._load()
 
     def _load(self) -> list[Rule]:
@@ -51,17 +52,13 @@ class RuleStore:
                 raise RuleError("rules must be a list")
         else:
             raise RuleError(f"unsupported rules.json version: {version!r}")
-        self.issued = _parse_issued(data.get("issued", {}), "R", allowed=("N", "R") if version == 1 else ("R",))
         rules = [parse_rule(item) for item in raw]
         _check_unique(rule.id for rule in rules)
         return rules
 
     def save(self) -> None:
         """キー順・2 スペースインデント・末尾改行を固定して書き出す。"""
-        data: dict[str, Any] = {"version": FORMAT_VERSION, "rules": [rule.to_dict() for rule in self.items]}
-        if self.issued:
-            data["issued"] = {"R": self.issued}
-        _write_json(self.path, data)
+        _write_json(self.path, {"version": FORMAT_VERSION, "rules": [rule.to_dict() for rule in self.items]})
 
     def rules(self, scopes: list[str] | None = None) -> list[Rule]:
         """ルールを並び順で返す。scopes を渡すと、そのどれかを持つルールと全体共通のルールだけを返す。"""
@@ -83,10 +80,11 @@ class RuleStore:
         scopes: list[str] | None = None,
         decision: str | None = None,
         source: str | None = None,
+        taken: Collection[str] = (),
     ) -> Rule:
         """ルールを末尾に追加し、保存する。"""
         rule = self.new_rule(text, scopes, decision, source)
-        self._issue(rule)
+        self._issue(rule, taken)
         self.items.append(rule)
         self.save()
         return rule
@@ -98,6 +96,7 @@ class RuleStore:
         scopes: list[str] | None = None,
         decision: str | None = None,
         source: str | None = None,
+        taken: Collection[str] = (),
     ) -> tuple[Rule, Rule]:
         """old_id のルールを新しい ID のルールに置き換え、保存する。(古いルール, 新しいルール) を返す。
 
@@ -107,7 +106,7 @@ class RuleStore:
         index = self._index(old_id)
         old = self.items[index]
         rule = self.new_rule(text, old.scopes if scopes is None else scopes, decision, source)
-        self._issue(rule)
+        self._issue(rule, taken)
         self.items[index] = rule
         self.save()
         return old, rule
@@ -116,7 +115,6 @@ class RuleStore:
         """ルールを消して保存する。存在しない ID が 1 つでもあれば何も消さずに RuleError を送出する。"""
         indexes = [self._index(rule_id) for rule_id in dict.fromkeys(rule_ids)]
         retired = [self.items[index] for index in indexes]
-        self._remember_issued()
         self.items = [rule for index, rule in enumerate(self.items) if index not in indexes]
         self.save()
         return retired
@@ -154,15 +152,8 @@ class RuleStore:
                 return index
         raise RuleError(f"unknown rule id: {rule_id}")
 
-    def _issue(self, rule: Rule) -> None:
-        """新しい ID を発行して rule に付ける。発行済みの番号は二度と使わない。"""
-        self._remember_issued()
-        self.issued += 1
-        rule.id = f"R{self.issued:03d}"
-
-    def _remember_issued(self) -> None:
-        """今ある ID の最大番号を issued に反映する（issued を持たない v0.1 のファイル向け）。"""
-        self.issued = max([self.issued, *(int(rule.id[1:]) for rule in self.items)])
+    def _issue(self, rule: Rule, taken: Collection[str]) -> None:
+        rule.id = new_id("R", {*taken, *(r.id for r in self.items)})
 
 
 class ProposalStore:
@@ -173,7 +164,6 @@ class ProposalStore:
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = Path(path)
-        self.issued = 0
         self.items = self._load()
 
     def _load(self) -> list[Proposal]:
@@ -185,17 +175,12 @@ class ProposalStore:
         raw = data.get("proposals")
         if not isinstance(raw, list):
             raise RuleError("proposals must be a list")
-        self.issued = _parse_issued(data.get("issued", {}), "P", allowed=("P",))
         proposals = [parse_proposal(item) for item in raw]
         _check_unique(proposal.id for proposal in proposals)
-        self.issued = max([self.issued, *(int(proposal.id[1:]) for proposal in proposals)])
         return proposals
 
     def save(self) -> None:
-        data: dict[str, Any] = {"version": PROPOSALS_VERSION, "proposals": [p.to_dict() for p in self.items]}
-        if self.issued:
-            data["issued"] = {"P": self.issued}
-        _write_json(self.path, data)
+        _write_json(self.path, {"version": PROPOSALS_VERSION, "proposals": [p.to_dict() for p in self.items]})
 
     def get(self, proposal_id: str) -> Proposal | None:
         return next((proposal for proposal in self.items if proposal.id == proposal_id), None)
@@ -204,10 +189,9 @@ class ProposalStore:
         """中身が同じ提案が残っていれば返す。"""
         return next((p for p in self.items if p.same_content(proposal)), None)
 
-    def add(self, proposal: Proposal) -> Proposal:
-        """新しい ID を振って追加し、保存する。"""
-        self.issued += 1
-        proposal.id = f"P{self.issued:03d}"
+    def add(self, proposal: Proposal, taken: Collection[str] = ()) -> Proposal:
+        """新しい ID を振って追加し、保存する。taken はログに出たことのある ID。"""
+        proposal.id = new_id("P", {*taken, *(p.id for p in self.items)})
         self.items.append(proposal)
         self.save()
         return proposal
@@ -240,14 +224,6 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     except BaseException:
         os.unlink(tmp)
         raise
-
-
-def _parse_issued(issued: Any, prefix: str, allowed: tuple[str, ...]) -> int:
-    if not isinstance(issued, dict) or not all(
-        key in allowed and type(value) is int and value >= 0 for key, value in issued.items()
-    ):
-        raise RuleError(f"invalid issued: {issued!r}")
-    return issued.get(prefix, 0)
 
 
 def _check_unique(ids: Iterator[str] | Any) -> None:

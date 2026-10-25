@@ -10,7 +10,18 @@ from typing import Any
 
 from k2down.core.model import RuleError
 
-EVENTS = ("applied", "rejected", "decided", "escalated", "replaced", "retired")
+EVENTS = (
+    "applied",
+    "rejected",
+    "decided",
+    "escalated",
+    "added",
+    "replaced",
+    "retired",
+    "proposed",
+    "accepted",
+    "declined",
+)
 PROBLEM_SUMMARY_MAX = 200
 
 

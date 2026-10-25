@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from k2down.core import RuleError, RuleStore, UsageLog, build_report, decide, escalate, record, replace, retire
+from k2down.core import RuleError, RuleStore, UsageLog, add, build_report, decide, escalate, record, replace, retire
 
 JST = timezone(timedelta(hours=9))
 
@@ -27,7 +27,7 @@ def test_report_counts_and_candidates(env):
     decide(log, "D3", "人が決めた", "none")
     escalate(store, log, "D4", "ぶつかった", "conflict", ["R002", "R001"])
 
-    report = build_report(store.rules(), log.read())
+    report = build_report(store.rules(), log.read(), min_decisions=3)
     assert report["decisions"] == {"decided": 3, "hit": 1, "miss": 1, "none": 1}
     assert [(r["id"], r["applied"], r["hit"], r["miss"], r["rejected"]) for r in report["rules"]] == [
         ("R001", 1, 0, 1, 0),
@@ -38,9 +38,36 @@ def test_report_counts_and_candidates(env):
     assert report["drop_candidates"] == ["R004"]
     assert report["rewrite_candidates"] == ["R001", "R002", "R003"]
     assert report["conflict_candidates"] == [{"rule_ids": ["R001", "R002"], "decisions": ["D1", "D4"]}]
-    assert report["new_rule_candidates"] == [{"decision": "D3", "problem": "新しい話", "actual": "人が決めた"}]
+    assert report["new_rule_candidates"] == [
+        {"decision": "D3", "problem": "新しい話", "actual": "人が決めた", "proposals": []}
+    ]
     [day] = report["daily"]
     assert (day["decided"], day["hit"], day["ratio"]) == (3, 1, 0.33)
+
+
+def test_drop_candidates_wait_for_decisions_since_added(tmp_path):
+    store = RuleStore(tmp_path / "rules.json")
+    log = UsageLog(tmp_path / "usage.jsonl")
+    store.add_rule("足した記録のない古いルール")
+    log.write("decided", ts=datetime(2026, 10, 1, 9, tzinfo=JST), decision="D1", actual="x", outcome="none")
+    add(store, log, "足したばかりのルール")  # 今の時刻で added が記録される
+    log.write("decided", ts=datetime(2026, 10, 1, 10, tzinfo=timezone.utc), decision="D2", actual="x", outcome="none")
+
+    report = build_report(store.rules(), log.read(), min_decisions=2)
+    assert [(r["id"], r["decisions"]) for r in report["rules"]] == [("R001", 2), ("R002", 0)]
+    assert report["drop_candidates"] == ["R001"]
+    assert build_report(store.rules(), log.read(), min_decisions=3)["drop_candidates"] == []
+    with pytest.raises(ValueError):
+        build_report(store.rules(), log.read(), min_decisions=-1)
+
+
+def test_replacement_counts_from_when_it_was_replaced(tmp_path):
+    store = RuleStore(tmp_path / "rules.json")
+    log = UsageLog(tmp_path / "usage.jsonl")
+    store.add_rule("a")
+    log.write("decided", ts=datetime(2026, 10, 1, tzinfo=JST), decision="D1", actual="x", outcome="none")
+    replace(store, log, "R001", "a2")
+    assert build_report(store.rules(), log.read(), min_decisions=1)["drop_candidates"] == []
 
 
 def test_last_decided_wins(env):

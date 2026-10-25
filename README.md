@@ -10,7 +10,7 @@ k2down = 決断（ke-tsu-dan）= knockdown。
 - **CLI が本体。** 主な利用者はホスト側の AI エージェント（Claude Code 等）で、人間が直接打つことはあまり想定していない
 - **k2down 自身は判定しない。** ルールを渡すだけで、当てはまるかどうかはホスト側の AI が決め、その結果を記録させる
 - **一切通信しない。** CLI とコアは Python 標準ライブラリだけで動き、依存パッケージはゼロ
-- ルールは自然言語 1 行。`rules.json` に木構造で保存し、git で差分を追いやすい形式で書き出す
+- ルールは自然言語 1 行。`rules.json` に平らな一覧で保存し、git で差分を追いやすい形式で書き出す。範囲はタグ（`scopes`）で付ける
 - 適用ログはローカルの `usage.jsonl` に追記するだけ。テレメトリはない
 
 ## 必要なもの
@@ -28,31 +28,37 @@ k2down --dir /path/to/your/rules list
 入れずに試すだけなら `uvx --from git+https://github.com/yuta4030/k2down k2down list` でも動きます。
 手元で clone した場合は `uv tool install ./k2down`、または `uv run --directory /path/to/k2down k2down ...` を使います。
 
-`--dir`（省略時は環境変数 `K2DOWN_DIR`、それもなければカレントディレクトリ）にある `rules.json` と `usage.jsonl` を読み書きします。ファイルがなければ最初の `add` で作られます。
+`--dir`（省略時は環境変数 `K2DOWN_DIR`、それもなければカレントディレクトリ）にある `rules.json`・`proposals.json`・`usage.jsonl` を読み書きします。ファイルがなければ最初の `add` で作られます。
 
 | コマンド | 説明 | 出力 |
 |---|---|---|
-| `k2down list` | 全ルールを返す | 木構造のテキスト（下記） |
-| `k2down add RULE [--parent N001] [--source S]` | 1 行ルールを追加する。`--source` は出どころ | `R003` |
+| `k2down list [--scope S]...` | ルールを返す。`--scope` を付けるとその範囲と全体共通のルールだけ | 1 行 1 ルール（下記） |
+| `k2down scope ID... [--add S]... [--remove S]...` | ルールの範囲を足し引きする（ID は変わらない） | 変えたルール |
+| `k2down add RULE [--scope S]... [--decision D] [--source S]` | 1 行ルールを追加する | `R003` |
 | `k2down apply [--decision D] --problem P ID...` | ルールを問題に適用したことを記録する | `applied R001 R003` |
 | `k2down reject [--decision D] --problem P ID...` | 適用したルールを人間が却下したことを記録する | `rejected R003` |
 | `k2down escalate --decision D --problem P --reason no_match\|conflict [ID...]` | ルールで決まらず人に聞いたことを記録する。`conflict` はぶつかったルールを 2 つ以上渡す | `escalated D12 conflict R003 R017` |
 | `k2down decide --decision D [--predicted P] --actual A --outcome hit\|miss\|none [--problem P]` | 予測と人の決断の答え合わせを記録する | `decided D12 miss` |
-| `k2down replace ID RULE [--source S]` | ルールを新しい ID のルールに置き換える | `R031` |
+| `k2down replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを新しい ID のルールに置き換える。`--scope` を省くと範囲を引き継ぐ | `R031` |
 | `k2down retire ID...` | ルールを消す | `retired R020` |
-| `k2down report [--since YYYY-MM-DD]` | ログを集計し、手入れの候補を返す | 下記 |
+| `k2down propose add RULE [--scope S]... [--decision D] [--source S]` | ルールを足す提案を出す | `P001` |
+| `k2down propose retire ID [--decision D] [--source S]` | ルールを外す提案を出す | `P002` |
+| `k2down propose replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを置き換える提案を出す | `P003` |
+| `k2down proposals` | 決まっていない提案を返す | `P001 add <本文> [decision: I3-2]` |
+| `k2down accept PID...` | 提案を受け入れ、ルールに反映する | `accepted P001 add R032` |
+| `k2down decline PID... [--reason R]` | 提案を却下する（履歴に残る） | `declined P002` |
+| `k2down report [--since YYYY-MM-DD] [--min-decisions N]` | ログを集計し、手入れの候補を返す | 下記 |
 
-`list` の出力は 1 行 1 項目で、「ID␣本文」を木の深さごとに 2 スペースずつ字下げしたものです。
+`list` の出力は 1 行 1 ルールの「ID␣本文」で、範囲・決断 ID・出どころ・note があれば後ろに付きます。
 
 ```text
-N000 全体
-  R001 外部公開 API の認証は OAuth に統一する
-  N001 社内認証
-    R002 社内バッチ間の認証はサービスアカウントで行う [note: notes/R002.md]
+R001 外部公開 API の認証は OAuth に統一する [scopes: implement plan]
+R002 社内バッチ間の認証はサービスアカウントで行う [decision: I1-4] [note: notes/R002.md]
+R003 実装の細部はエージェントが決める
 ```
 
 - 既定の出力は、LLM が読みやすくトークンの少ないプレーンテキストです（同じ内容の JSON の半分以下）
-- `--json` を付けると JSON を返します（`list` は `{"rules": [{"id", "rule", "parent", "note"?}]}`）
+- `--json` を付けると JSON を返します（`list` は `{"rules": [{"id", "rule", "scopes"?, "decision"?, "source"?, "note"?}], "scopes": [使われている範囲]}`）
 - エラー時は終了コード 1 で、stderr に `error: ...`（`--json` なら `{"error": "..."}`）を書きます。存在しない ID を指定したときは何も記録しません
 - テキスト引数に `-` を渡すと stdin から読みます
 
@@ -64,14 +70,26 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 - **答え合わせ**：`decide --outcome` は `hit`（ルールの予測どおり）/ `miss`（外れ）/ `none`（ルールで予測できず人が決めた）。一致したかどうかはホストが判定します。同じ決断を記録し直したときは最後の記録が使われます
 - **人に聞く**：どのルールも当たらない（`no_match`）か、当たったルールがぶつかった（`conflict`）ら `escalate` を記録して人に聞き、答えを `decide --outcome none` で残します
 - **置き換えと削除**：`replace` は同じ位置に新しい ID でルールを入れ、古いルールを消して `usage.jsonl` に「旧 ID → 新 ID」を残します。消した ID は二度と発行しません。置き換え済みの ID を指定すると、エラーに置き換え先が出ます
-- **範囲**：役や人ごとにルールを分けたいときは、store のディレクトリを分けて `--dir` / `K2DOWN_DIR` で切り替えます
+- **範囲**：ルールに範囲の名前（例：`plan`、`implement`、`review`）をいくつでも付けられます。範囲のないルールは全体共通です。`list --scope implement` は `implement` を持つルールと全体共通のルールを返します。階層や上書きはありません。ルールの組そのものを分けたいとき（役や人ごと、木のように分けたいとき）は、store のディレクトリを分けて `--dir` / `K2DOWN_DIR` で切り替えます
+- **出どころ**：`--decision` はルールのもとになった決断 ID、`--source` は ID で表せない出どころの自由記述です。別の項目に入ります
+
+### 提案
+
+ルールを変えるとき、エージェントは直接 `add` / `replace` / `retire` するかわりに提案を出し、人が受け入れたものだけをルールにできます。
+
+- 提案は足す（`add`）・外す（`retire`）・置き換える（`replace`）の 3 種類。ID は `P` + 3 桁で、使い回しません
+- 中身（種類・対象のルール・文言・範囲）が同じ提案が残っていれば、新しく振らずにその ID を返します。再送しても増えません。同じかどうかは文字列の一致で見ます（似ているかの判定はしません）
+- `accept` は提案どおりに `add` / `retire` / `replace` を行います。受け入れられない提案（対象のルールがもうない、同じルールを対象にした提案を一度に受け入れる）が 1 つでもあれば、何も変えずにエラーになります
+- 決まった提案は `proposals.json` から消え、出した・受け入れた・却下した記録が `usage.jsonl` に残ります。決まった提案の ID を渡すと、エラーにどう決まったかが出ます
 
 `report` は次の候補を数えて返します（`--since` で期間を絞れます）。
 
 - ルールごとの applied / hit / miss / rejected の件数
-- 落とす候補（一度も当たっていない）、書き直す候補（miss と rejected が多い順）
+- 落とす候補（足してから `--min-decisions`（既定 10）件以上の決断が記録されたのに、一度も当たっていない）。足したばかりのルールは入りません。足した記録のない v0.2 以前のルールは、期間の初めから数えます
+- 書き直す候補（miss と rejected が多い順）
 - ぶつかる組の候補（同じ決断で同時に当たって外れた組と、`conflict` で人に聞いた組）
-- 新しいルールの候補（`none` の決断と人の答え）
+- 新しいルールの候補（`none` の決断と人の答え、その決断から出た提案の ID）
+- 提案の数（出した・受け入れた・却下した・残っている）と、却下された提案の一覧
 - 日ごとの「ルールで決まった割合」（hit ÷ 記録された決断）
 
 ### AI エージェントに使わせる
@@ -84,7 +102,7 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 決断ごとに短い ID（例：D12）を付け、従ったルールは `k2down apply --decision D12 --problem "<問題の要約>" <ID...>` で記録する。
 どのルールも当たらないか、ルール同士がぶつかったら `k2down escalate` を記録して人間に聞く。
 人間が決めたら `k2down decide` で予測が当たったか（hit / miss / none）を記録する。
-ルールが無い新しい汎用的な判断をしたら、人間に確認してから `k2down add "<1 行ルール>" --source D12` で追加する。
+ルールが無い新しい汎用的な判断をしたら、`k2down propose add "<1 行ルール>" --decision D12` で提案し、人間が受け入れたら `k2down accept <P...>` する。
 使い方の詳細は `k2down --help`。
 ```
 
@@ -107,8 +125,8 @@ claude mcp add k2down -- uvx --from 'k2down[mcp] @ git+https://github.com/yuta40
 
 | ツール | 説明 |
 |---|---|
-| `find_rules(problem)` | 問題文に当てはまるルールを `{"rules": [...], "escalate": bool}` で返し、`usage.jsonl` に `applied` として記録する。当てはまるルールがなければ `escalate` が `true`（人に聞く） |
-| `add_rule(rule, parent_id?)` | 1 行ルールを追加し、新しい ID を返す |
+| `find_rules(problem, scopes?)` | 問題文に当てはまるルールを `{"rules": [...], "escalate": bool}` で返し、`usage.jsonl` に `applied` として記録する。`scopes` を渡すとその範囲と全体共通のルールだけを見る。当てはまるルールがなければ `escalate` が `true`（人に聞く） |
+| `add_rule(rule, scopes?)` | 1 行ルールを追加し、新しい ID を返す |
 
 ## ライブラリとして使う
 
@@ -128,25 +146,46 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 
 ```json
 {
-  "root": {
-    "children": [
-      {
-        "id": "R001",
-        "rule": "外部公開 API の認証は OAuth に統一する"
-      }
-    ],
-    "id": "N000",
-    "summary": "全体"
+  "issued": {
+    "R": 2
   },
-  "version": 1
+  "rules": [
+    {
+      "id": "R001",
+      "rule": "外部公開 API の認証は OAuth に統一する",
+      "scopes": ["implement", "plan"]
+    },
+    {
+      "decision": "I1-4",
+      "id": "R002",
+      "rule": "社内バッチ間の認証はサービスアカウントで行う"
+    }
+  ],
+  "version": 2
 }
 ```
 
-- `children` を持つものが内部ノード（`N` + 3 桁）、`rule` を持つものが葉（`R` + 3 桁）
-- ID は一度採番したら変えず、消した ID も再発行しない。`issued` に発行済みの最大番号を持つ
+- ルールの ID は `R` + 3 桁。一度採番したら変えず、消した ID も再発行しない。`issued` に発行済みの最大番号を持つ
+- `scopes` は任意。範囲の名前（空白なし）の一覧で、なければ全体共通
+- `decision` は任意。ルールのもとになった決断 ID
+- `source` は任意。ID で表せない出どころの自由記述（1 行）
 - `note` は任意。背景・理由は `notes/<ID>.md` に置く
-- `source` は任意。ルールの出どころ（どの決断・どのセッションから生まれたか）
 - 統計は入れない
+- v0.2 までの木構造のファイル（`"version": 1`）もそのまま読めます。ルールを木の順に並べた一覧として扱い、次に書き込んだときに `"version": 2` になります（グループのノードは消えます）
+
+### proposals.json
+
+決まっていない提案だけを持ちます。
+
+```json
+{
+  "issued": {"P": 3},
+  "proposals": [
+    {"decision": "I3-2", "id": "P003", "kind": "replace", "rule": "引けるなら引く", "rule_id": "R001"}
+  ],
+  "version": 1
+}
+```
 
 ### usage.jsonl
 
@@ -157,9 +196,15 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 {"ts": "...", "event": "rejected", "rule_id": "R001", "problem": "..."}
 {"ts": "...", "event": "decided", "decision": "D12", "predicted": "A", "actual": "B", "outcome": "miss"}
 {"ts": "...", "event": "escalated", "decision": "D13", "problem": "...", "reason": "conflict", "rule_ids": ["R003", "R017"]}
-{"ts": "...", "event": "replaced", "rule_id": "R012", "replaced_by": "R031"}
+{"ts": "...", "event": "added", "rule_id": "R030", "decision": "D12"}
+{"ts": "...", "event": "replaced", "rule_id": "R012", "replaced_by": "R031", "proposal": "P003"}
 {"ts": "...", "event": "retired", "rule_id": "R020"}
+{"ts": "...", "event": "proposed", "proposal": "P003", "kind": "replace", "rule_id": "R012", "rule": "...", "decision": "D12"}
+{"ts": "...", "event": "accepted", "proposal": "P003"}
+{"ts": "...", "event": "declined", "proposal": "P004", "reason": "..."}
 ```
+
+`added` / `replaced` / `retired` は、提案を受け入れて行ったときに `proposal` を持ちます。
 
 ## 開発
 

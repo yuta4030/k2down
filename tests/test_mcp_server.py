@@ -51,7 +51,20 @@ def test_add_then_find(tmp_path):
     assert "公開 API を新設する" in prompt and "R001: 外部公開" in prompt and "R002: ログは" in prompt
 
     usage = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert [(u["event"], u["rule_id"]) for u in usage] == [("applied", "R001")]
+    assert [(u["event"], u["rule_id"]) for u in usage] == [("added", "R001"), ("added", "R002"), ("applied", "R001")]
+
+
+def test_find_rules_in_scopes(tmp_path):
+    server = create_server(tmp_path)
+    call(server, "add_rule", {"rule": "企画のルール", "scopes": ["plan"]})
+    call(server, "add_rule", {"rule": "共通のルール"})
+    call(server, "add_rule", {"rule": "実装のルール", "scopes": ["implement"]})
+
+    seen = []
+    result = call(server, "find_rules", {"problem": "p", "scopes": ["implement"]}, reply='["R001", "R003"]', seen=seen)
+    assert [r["id"] for r in result.structured_content["rules"]] == ["R003"]
+    prompt = seen[0].messages[0].content.text
+    assert "R001" not in prompt and "R002: 共通" in prompt and "R003: 実装" in prompt
 
 
 def test_find_without_rules_does_not_sample(tmp_path):
@@ -69,14 +82,14 @@ def test_find_no_match_escalates(tmp_path):
     assert result.structured_content == {"rules": [], "escalate": True}
 
 
-def test_find_rules_schema_exposes_only_problem(tmp_path):
+def test_tool_schemas(tmp_path):
     async def run():
         async with Client(create_server(tmp_path)) as client:
             return {tool.name: tool.input_schema for tool in (await client.list_tools()).tools}
 
     schemas = asyncio.run(run())
-    assert set(schemas["find_rules"]["properties"]) == {"problem"}
-    assert set(schemas["add_rule"]["properties"]) == {"rule", "parent_id"}
+    assert set(schemas["find_rules"]["properties"]) == {"problem", "scopes"}
+    assert set(schemas["add_rule"]["properties"]) == {"rule", "scopes"}
 
 
 def test_add_rule_rejects_multiline(tmp_path):

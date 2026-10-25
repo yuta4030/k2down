@@ -22,7 +22,7 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 - ルールの読み書き（`rules.json`）
 - CLI コマンド
   - `k2down list`：全ルールを返す（判定はホスト側が行う）
-  - `k2down add RULE [--parent ID]`：1 行ルールを追加し、新しい ID を返す
+  - `k2down add RULE`：1 行ルールを追加し、新しい ID を返す（v0.2 までは `--parent ID` があった。v0.3 で範囲に置き換え）
   - `k2down apply --problem P ID...`：適用したルールを記録する
   - `k2down reject --problem P ID...`：人間が却下したルールを記録する
 - MCP ツール（任意）
@@ -50,34 +50,71 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 - `add` に任意の `--source TEXT`（ルールの出どころ。1 行）を足す
 - MCP の `find_rules` は `{"rules": [...], "escalate": bool}` を返し、当たるルールがなければ `escalate: true` にする
 - 置き換え済みの ID を `apply` などに渡したら、エラーに置き換え先を添える（`usage.jsonl` の `replaced` から引く）
-- 範囲（scope）は store のディレクトリを分けて扱う（`--dir` / `K2DOWN_DIR`）。タグは作らない
+- 範囲（scope）は store のディレクトリを分けて扱う（`--dir` / `K2DOWN_DIR`）。タグは作らない（v0.3 で見直し、範囲のタグを入れた）
 - ID は使い回さない。消したルールの番号も再発行しないよう、発行済みの最大番号を rules.json に持つ
 - v0.2 でも作らないもの：木構造の探索、推論ループ、マージの自動実行、タグ、一致・矛盾・類似の判定
 
+## v0.3 の範囲
+背景は `DESIGN.md` の「v0.3：提案と範囲」を参照。algr（k2down を判断ストアとして使うフロー）からの要望が出発点。原則（記録と集計だけ、意味の判定はホスト）は変えない。
+- **提案**：ルールになる前の段階を k2down で持つ
+  - `k2down propose add RULE` / `propose retire ID` / `propose replace ID RULE`：提案を出し、提案 ID（`P` + 3 桁）を返す。どれも任意で `--decision` / `--source`、add と replace は `--scope`
+  - 中身（種類・対象・文言・範囲）が同じ提案が残っていれば、新しく振らずにその ID を返す。比べるのは文字列の一致だけ（似ているかは判定しない）
+  - `k2down proposals`：決まっていない提案を返す
+  - `k2down accept PID...`：提案どおりに add / retire / replace する。受け入れられない提案が 1 つでもあれば何も変えない
+  - `k2down decline PID... [--reason R]`：却下する。却下も履歴に残る
+  - 提案 ID は使い回さない。決まった提案は `proposals.json` から消し、履歴は `usage.jsonl` に残す
+- **出どころを分ける**：ルールと提案に `decision`（決断 ID）と `source`（ID で表せない自由記述）を別々に持たせる。既存の `source` に入った決断 ID は k2down では移さない（決断 ID の書式を知らないため。移すならホスト側で）
+- **範囲（タグ）**：ルールに `scopes`（範囲の名前の一覧）を持たせる。空なら全体共通
+  - `add` / `replace` / `propose` に `--scope`（繰り返し可）。`replace` で省くと古いルールの範囲を引き継ぐ
+  - `k2down scope ID... --add S --remove S`：範囲を足し引きする。ID は変えない
+  - `k2down list --scope S`：S を持つルールと全体共通のルールを返す。`list --json` は使われている範囲の一覧も返す
+  - MCP の `find_rules(problem, scopes?)` / `add_rule(rule, scopes?)`
+  - 階層・上書き・範囲の定義ファイルは作らない。ルールの組そのものを分けたいときは store のディレクトリを分ける
+- **ルール木をやめる**：rules.json はルールの平らな一覧にする。内部ノード（`N`）と `--parent` はなくす。v1 のファイルは読めるようにし、次の保存で v2 にする
+- **report**
+  - `add` は `added` イベントを記録する。落とす候補は「足してから `--min-decisions`（既定 10）件以上の決断が記録されたのに一度も当たっていない」ルール。足した記録がなければ期間の初めから数える
+  - 提案の数（proposed / accepted / declined / pending）と、却下された提案の一覧を出す
+  - 新しいルールの候補に、その決断から出た提案 ID を添える
+- v0.3 でも作らないもの：推論ループ、マージの自動実行、範囲の階層、一致・矛盾・類似の判定
+
 ## データ形式
 
-### rules.json
+### rules.json（v0.3 から version 2）
+```json
+{
+  "version": 2,
+  "issued": {"R": 31},
+  "rules": [
+    { "id": "R001", "rule": "外部公開 API の認証は OAuth に統一する", "scopes": ["implement", "plan"] },
+    { "id": "R002", "rule": "社内バッチ間の認証はサービスアカウントで行う", "note": "notes/R002.md", "decision": "I1-4" }
+  ]
+}
+```
+- ルールの ID は `R` + 3 桁
+- version 1（v0.2 までのルール木。`root` の下に `children` を持つ `N` ノードと `rule` を持つ葉）も読む。葉を木の順に並べた一覧として扱う
+- ルールは**自然言語 1 行**。改行を含めない
+- `scopes` は任意（v0.3）。範囲の名前（空白なし）の一覧。名前順・重複なしで保存する。空なら全体共通
+- `decision` は任意（v0.3）。ルールのもとになった決断 ID
+- ID は採番後に変更しない。文言の修正では ID を維持する
+- `note` は任意。背景・理由は `notes/<ID>.md` に置く
+- `source` は任意（v0.2）。ID で表せない出どころを 1 行で書く（v0.3 から決断 ID は `decision` に入れる）
+- `issued` は発行済みの最大番号（v0.2）。例：`"issued": {"R": 31}`。消した ID を再発行しないために使う
+- 保存時はキー順・インデント（2 スペース）・末尾改行を固定し、git の差分を安定させる
+- 統計は rules.json に**入れない**
+
+### proposals.json（v0.3）
+決まっていない提案だけを持つ。保存の形式は rules.json と同じく固定する。
 ```json
 {
   "version": 1,
-  "root": {
-    "id": "N000",
-    "summary": "全体",
-    "children": [
-      { "id": "R001", "rule": "外部公開 API の認証は OAuth に統一する" },
-      { "id": "R002", "rule": "社内バッチ間の認証はサービスアカウントで行う", "note": "notes/R002.md" }
-    ]
-  }
+  "issued": {"P": 3},
+  "proposals": [
+    { "id": "P003", "kind": "replace", "rule_id": "R001", "rule": "...", "decision": "I3-2" }
+  ]
 }
 ```
-- `children` を持つものが内部ノード（ID は `N` + 3 桁）、`rule` を持つものが葉（ID は `R` + 3 桁）
-- ルールは**自然言語 1 行**。改行を含めない
-- ID は採番後に変更しない。文言の修正では ID を維持する
-- `note` は任意。背景・理由は `notes/<ID>.md` に置く
-- `source` は任意（v0.2）。どの決断・どのセッションから生まれたかを 1 行で書く
-- `issued` は発行済みの最大番号（v0.2）。例：`"issued": {"N": 1, "R": 31}`。消した ID を再発行しないために使う
-- 保存時はキー順・インデント（2 スペース）・末尾改行を固定し、git の差分を安定させる
-- 統計は rules.json に**入れない**
+- `kind` は `add`（`rule` を持つ）/ `retire`（`rule_id` を持つ）/ `replace`（両方）
+- 任意で `scopes`（add / replace）、`decision`、`source`
 
 ### usage.jsonl
 1 行 1 イベント。最低限のフィールド：
@@ -94,6 +131,14 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 {"ts": "...", "event": "replaced", "rule_id": "R012", "replaced_by": "R031"}
 {"ts": "...", "event": "retired", "rule_id": "R020"}
 ```
+- v0.3 で増えるイベント。`added` / `replaced` / `retired` は提案を受け入れて行ったとき `proposal` を持つ：
+```json
+{"ts": "...", "event": "added", "rule_id": "R030", "decision": "D123"}
+{"ts": "...", "event": "proposed", "proposal": "P003", "kind": "replace", "rule_id": "R012", "rule": "...", "decision": "D123"}
+{"ts": "...", "event": "accepted", "proposal": "P003"}
+{"ts": "...", "event": "replaced", "rule_id": "R012", "replaced_by": "R031", "proposal": "P003"}
+{"ts": "...", "event": "declined", "proposal": "P004", "reason": "..."}
+```
 - `outcome` は `hit`（予測どおり）/ `miss`（外れ）/ `none`（ルールで予測できず人が決めた）
 - `rejected`（ルールが当てはまらなかった）と `miss`（当てはまったが予測が外れた）は別に数える
 
@@ -101,7 +146,7 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 ```
 src/k2down/
   cli.py     # CLI（本体。標準ライブラリのみ）
-  core/      # ルール木の読み書き、判定インターフェース、ログ（通信なし）
+  core/      # ルールと提案の読み書き、判定インターフェース、ログ、集計（通信なし）
   mcp/       # MCP サーバー（任意。sampling で判定）
 tests/
 ```

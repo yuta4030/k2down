@@ -29,12 +29,17 @@ def k2(k2_text):
     return run
 
 
-def read_usage(tmp_path):
-    return [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text(encoding="utf-8").splitlines()]
+def read_usage(tmp_path, *skip):
+    """usage.jsonl のイベントを返す。skip に挙げた種類は除く。"""
+    path = tmp_path / "usage.jsonl"
+    if not path.exists():
+        return []
+    events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    return [e for e in events if e["event"] not in skip]
 
 
 def test_empty_list(k2, tmp_path):
-    assert k2("list") == (0, {"rules": []}, None)
+    assert k2("list") == (0, {"rules": [], "scopes": []}, None)
     assert not (tmp_path / "rules.json").exists()
 
 
@@ -46,9 +51,10 @@ def test_add_list_apply_reject(k2, tmp_path):
     assert code == 0
     assert out == {
         "rules": [
-            {"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する", "parent": "N000"},
-            {"id": "R002", "rule": "ログは JSON で出す", "parent": "N000"},
-        ]
+            {"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"},
+            {"id": "R002", "rule": "ログは JSON で出す"},
+        ],
+        "scopes": [],
     }
 
     code, out, _ = k2("apply", "--problem", "公開 API を新設する", "R002", "R001", "R002")
@@ -59,7 +65,7 @@ def test_add_list_apply_reject(k2, tmp_path):
     assert code == 0
     assert out == {"rejected": [{"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"}]}
 
-    assert [(u["event"], u["rule_id"], u["problem"]) for u in read_usage(tmp_path)] == [
+    assert [(u["event"], u["rule_id"], u["problem"]) for u in read_usage(tmp_path, "added")] == [
         ("applied", "R002", "公開 API を新設する"),
         ("applied", "R001", "公開 API を新設する"),
         ("rejected", "R001", "公開 API を 新設する"),
@@ -71,7 +77,7 @@ def test_apply_unknown_id_fails_without_logging(k2, tmp_path):
     code, out, err = k2("apply", "--problem", "p", "R001", "R999")
     assert code == 1 and out is None
     assert "R999" in err["error"]
-    assert not (tmp_path / "usage.jsonl").exists()
+    assert read_usage(tmp_path, "added") == []
 
 
 @pytest.mark.parametrize(
@@ -79,7 +85,7 @@ def test_apply_unknown_id_fails_without_logging(k2, tmp_path):
     [
         ("add", "1 行目\n2 行目"),
         ("add", "  "),
-        ("add", "x", "--parent", "N999"),
+        ("add", "x", "--scope", "a b"),
         ("apply", "--problem", " ", "R001"),
     ],
 )
@@ -89,14 +95,18 @@ def test_errors_are_json_on_stderr(k2, args):
     assert code == 1 and out is None and "error" in err
 
 
-def test_add_under_nested_parent(k2, tmp_path):
-    data = {"version": 1, "root": {"id": "N000", "summary": "全体", "children": [
+def test_v1_tree_is_read_as_flat_list(k2, tmp_path):
+    data = {"version": 1, "issued": {"N": 1, "R": 4}, "root": {"id": "N000", "summary": "全体", "children": [
         {"id": "N001", "summary": "認証", "children": [{"id": "R001", "rule": "a"}]},
         {"id": "R002", "rule": "b"},
     ]}}
     (tmp_path / "rules.json").write_text(json.dumps(data), encoding="utf-8")
-    assert k2("add", "c", "--parent", "N001")[1] == {"id": "R003"}
-    assert [(r["id"], r["parent"]) for r in k2("list")[1]["rules"]] == [("R001", "N001"), ("R003", "N001"), ("R002", "N000")]
+    assert [r["id"] for r in k2("list")[1]["rules"]] == ["R001", "R002"]
+    assert k2("add", "c")[1] == {"id": "R005"}
+    saved = json.loads((tmp_path / "rules.json").read_text(encoding="utf-8"))
+    assert saved == {"version": 2, "issued": {"R": 5}, "rules": [
+        {"id": "R001", "rule": "a"}, {"id": "R002", "rule": "b"}, {"id": "R005", "rule": "c"},
+    ]}
 
 
 def test_corrupt_rules_json(k2, tmp_path):
@@ -111,28 +121,17 @@ def test_k2down_dir_env(tmp_path, capsys, monkeypatch):
     assert (tmp_path / "rules.json").exists()
 
 
-NESTED = {"version": 1, "root": {"id": "N000", "summary": "全体", "children": [
-    {"id": "R001", "rule": "外部公開 API の認証は OAuth に統一する"},
-    {"id": "N001", "summary": "社内\n認証", "children": [
-        {"id": "R002", "rule": "社内バッチ間の認証はサービスアカウントで行う", "note": "notes/R002.md"},
-    ]},
-    {"id": "R003", "rule": "ログは JSON で出す"},
-]}}
-
-
-def test_text_list_is_indented_tree(k2_text, tmp_path):
-    (tmp_path / "rules.json").write_text(json.dumps(NESTED), encoding="utf-8")
+def test_text_list(k2_text, tmp_path):
+    k2_text("add", "外部公開 API の認証は OAuth に統一する", "--scope", "plan", "--scope", "implement")
+    k2_text("add", "ログは JSON で出す", "--decision", "I1-4", "--source", "人の方針")
     assert k2_text("list") == (0, """\
-N000 全体
-  R001 外部公開 API の認証は OAuth に統一する
-  N001 社内 認証
-    R002 社内バッチ間の認証はサービスアカウントで行う [note: notes/R002.md]
-  R003 ログは JSON で出す
+R001 外部公開 API の認証は OAuth に統一する [scopes: implement plan]
+R002 ログは JSON で出す [decision: I1-4] [source: 人の方針]
 """, "")
 
 
 def test_text_empty_list(k2_text):
-    assert k2_text("list") == (0, "N000 全体\n", "")
+    assert k2_text("list") == (0, "\n", "")
 
 
 def test_text_add_apply_reject(k2_text, tmp_path):
@@ -140,14 +139,14 @@ def test_text_add_apply_reject(k2_text, tmp_path):
     assert k2_text("add", "b") == (0, "R002\n", "")
     assert k2_text("apply", "--problem", "p", "R002", "R001") == (0, "applied R002 R001\n", "")
     assert k2_text("reject", "--problem", "p", "R001") == (0, "rejected R001\n", "")
-    assert len(read_usage(tmp_path)) == 3
+    assert len(read_usage(tmp_path, "added")) == 3
 
 
 def test_text_error(k2_text, tmp_path):
     k2_text("add", "a")
     code, out, err = k2_text("apply", "--problem", "p", "R999")
     assert (code, out, err) == (1, "", "error: unknown rule id: R999\n")
-    assert not (tmp_path / "usage.jsonl").exists()
+    assert read_usage(tmp_path, "added") == []
 
 
 @pytest.mark.parametrize("position", ["before", "after"])
@@ -169,7 +168,7 @@ def test_decision_flow(k2, tmp_path):
         {"escalated": {"decision": "D2", "reason": "conflict", "rule_ids": ["R002", "R001"]}},
         None,
     )
-    events = read_usage(tmp_path)
+    events = read_usage(tmp_path, "added")
     assert [e["event"] for e in events] == ["applied", "applied", "decided", "escalated"]
     assert events[0]["decision"] == "D1"
 
@@ -188,13 +187,13 @@ def test_replace_and_retire(k2, tmp_path):
     assert [r["id"] for r in k2("list")[1]["rules"]] == ["R004", "R002", "R005"]
     code, _, err = k2("apply", "--problem", "p", "R001")
     assert code == 1 and err == {"error": "unknown rule id: R001 (replaced by R004)"}
-    assert [(e["event"], e["rule_id"]) for e in read_usage(tmp_path)] == [("replaced", "R001"), ("retired", "R003")]
+    assert [(e["event"], e["rule_id"]) for e in read_usage(tmp_path, "added")] == [("replaced", "R001"), ("retired", "R003")]
 
 
 def test_text_new_commands(k2_text, tmp_path):
     k2_text("add", "a", "--source", "D0")
     k2_text("add", "b")
-    assert k2_text("list")[1] == "N000 全体\n  R001 a [source: D0]\n  R002 b\n"
+    assert k2_text("list")[1] == "R001 a [source: D0]\nR002 b\n"
     assert k2_text("apply", "--decision", "D1", "--problem", "p", "R001") == (0, "applied R001\n", "")
     assert k2_text("decide", "--decision", "D1", "--actual", "x", "--outcome", "hit") == (0, "decided D1 hit\n", "")
     assert k2_text("escalate", "--decision", "D2", "--problem", "q", "--reason", "no_match") == (0, "escalated D2 no_match\n", "")
@@ -205,8 +204,8 @@ def test_text_new_commands(k2_text, tmp_path):
     code, out, _ = k2_text("report")
     assert code == 0
     assert "decisions 2: hit 1, miss 0, none 1\n" in out
-    assert "rules (ID applied hit miss rejected text):\n  R001 1 1 0 0 a\n" in out
-    assert "drop candidates (never applied):\n  (none)\n" in out
+    assert "rules (ID applied hit miss rejected decisions-since-added text):\n  R001 1 1 0 0 2 a\n" in out
+    assert "drop candidates (never applied in 10+ decisions since added; ID decisions text):\n  (none)\n" in out
     assert "new rule candidates (decided with outcome none):\n  D2 problem: q | actual: 人が決めた\n" in out
 
 
@@ -226,5 +225,5 @@ def test_new_command_errors(k2, tmp_path, args):
     k2("add", "b")
     code, out, err = k2(*args)
     assert code == 1 and out is None and "error" in err
-    assert not (tmp_path / "usage.jsonl").exists()
+    assert read_usage(tmp_path, "added") == []
     assert len(k2("list")[1]["rules"]) == 2

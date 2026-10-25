@@ -15,7 +15,7 @@ from mcp import types
 from mcp.server.mcpserver import MCPServer, Resolve, Sample
 
 from k2down import __version__
-from k2down.core import RuleStore, UsageLog, find_rules
+from k2down.core import RuleStore, UsageLog, add, find_rules, locked
 from k2down.mcp.judge import SampledJudge, sampling_request
 
 RULES_FILE = "rules.json"
@@ -33,9 +33,9 @@ def create_server(data_dir: str | os.PathLike[str]) -> MCPServer:
         ),
     )
 
-    def judgement(problem: str) -> Sample | None:
+    def judgement(problem: str, scopes: list[str] | None = None) -> Sample | None:
         # ルールが無い・問題文が空のときはホストに頼まない。
-        rules = RuleStore(data_dir / RULES_FILE).rules()
+        rules = RuleStore(data_dir / RULES_FILE).rules(scopes)
         if not rules or not problem.strip():
             return None
         return sampling_request(problem.strip(), rules)
@@ -44,18 +44,24 @@ def create_server(data_dir: str | os.PathLike[str]) -> MCPServer:
     async def find_rules_tool(
         problem: str,
         sampled: Annotated[types.CreateMessageResult | None, Resolve(judgement)],
+        scopes: list[str] | None = None,
     ) -> dict[str, Any]:
-        """問題文に当てはまる決断ルールを返す。当てはまるルールがなければ escalate が true になる（人に聞く）。"""
-        store = RuleStore(data_dir / RULES_FILE)
-        log = UsageLog(data_dir / USAGE_FILE)
-        rules = await find_rules(store, SampledJudge(sampled), problem, log)
+        """問題文に当てはまる決断ルールを返す。当てはまるルールがなければ escalate が true になる（人に聞く）。
+
+        scopes を渡すと、その範囲のルールと全体共通のルールだけを見る。
+        """
+        with locked(data_dir):
+            store = RuleStore(data_dir / RULES_FILE)
+            log = UsageLog(data_dir / USAGE_FILE)
+            rules = await find_rules(store, SampledJudge(sampled), problem, log, scopes)
         return {"rules": [rule.to_dict() for rule in rules], "escalate": not rules}
 
     @server.tool(name="add_rule")
-    def add_rule_tool(rule: str, parent_id: str | None = None) -> dict[str, str]:
-        """自然言語 1 行の決断ルールを追加し、新しい ID を返す。"""
-        store = RuleStore(data_dir / RULES_FILE)
-        added = store.add_rule(rule, parent_id)
+    def add_rule_tool(rule: str, scopes: list[str] | None = None) -> dict[str, str]:
+        """自然言語 1 行の決断ルールを追加し、新しい ID を返す。scopes を省くと全体共通のルールになる。"""
+        with locked(data_dir):
+            store = RuleStore(data_dir / RULES_FILE)
+            added = add(store, UsageLog(data_dir / USAGE_FILE), rule, scopes)
         return {"id": added.id}
 
     return server

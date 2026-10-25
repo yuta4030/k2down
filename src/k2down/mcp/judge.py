@@ -59,4 +59,4 @@ def parse_ids(text: str) -> list[str]:
         else:
             if isinstance(data, list):
                 return [item for item in data if isinstance(item, str) and RULE_ID.match(item)]
-    return re.findall(r"\bR\d{3,}\b", text)
+    return [item for item in re.findall(r"R-?[0-9a-z]+", text) if RULE_ID.match(item)]

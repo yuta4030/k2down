@@ -10,7 +10,18 @@ from typing import Any
 
 from k2down.core.model import RuleError
 
-EVENTS = ("applied", "rejected", "decided", "escalated", "replaced", "retired")
+EVENTS = (
+    "applied",
+    "rejected",
+    "decided",
+    "escalated",
+    "added",
+    "replaced",
+    "retired",
+    "proposed",
+    "accepted",
+    "declined",
+)
 PROBLEM_SUMMARY_MAX = 200
 
 
@@ -67,6 +78,18 @@ class UsageLog:
             for record in self.read()
             if record.get("event") == "replaced" and "rule_id" in record and "replaced_by" in record
         }
+
+
+    def ids(self) -> set[str]:
+        """ログに出たことのあるルール ID と提案 ID。消したものも含め、再発行しないために使う。"""
+        found: set[str] = set()
+        for record in self.read():
+            for key in ("rule_id", "replaced_by", "proposal"):
+                if isinstance(record.get(key), str):
+                    found.add(record[key])
+            if isinstance(record.get("rule_ids"), list):
+                found.update(item for item in record["rule_ids"] if isinstance(item, str))
+        return found
 
 
 def summarize(problem: str) -> str:

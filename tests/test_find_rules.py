@@ -23,22 +23,22 @@ def read_log(path):
 
 def test_returns_matched_rules_in_tree_order_and_logs(store, tmp_path):
     log = UsageLog(tmp_path / "usage.jsonl")
-    judge = FakeJudge(["R003", "R001"])
+    judge = FakeJudge(["R-00003", "R-00001"])
     matched = asyncio.run(find_rules(store, judge, "新しい公開 API を作る", log))
-    assert [r.id for r in matched] == ["R001", "R003"]
-    assert judge.calls == [("新しい公開 API を作る", ["R001", "R002", "R003"])]
+    assert [r.id for r in matched] == ["R-00001", "R-00003"]
+    assert judge.calls == [("新しい公開 API を作る", ["R-00001", "R-00002", "R-00003"])]
     events = read_log(tmp_path / "usage.jsonl")
     assert [(e["event"], e["rule_id"], e["problem"]) for e in events] == [
-        ("applied", "R001", "新しい公開 API を作る"),
-        ("applied", "R003", "新しい公開 API を作る"),
+        ("applied", "R-00001", "新しい公開 API を作る"),
+        ("applied", "R-00003", "新しい公開 API を作る"),
     ]
     datetime.fromisoformat(events[0]["ts"])
 
 
 def test_ignores_unknown_and_duplicate_ids(store, tmp_path):
     log = UsageLog(tmp_path / "usage.jsonl")
-    matched = asyncio.run(find_rules(store, FakeJudge(["R002", "R999", "R002"]), "p", log))
-    assert [r.id for r in matched] == ["R002"]
+    matched = asyncio.run(find_rules(store, FakeJudge(["R-00002", "R-00999", "R-00002"]), "p", log))
+    assert [r.id for r in matched] == ["R-00002"]
     assert len(read_log(tmp_path / "usage.jsonl")) == 1
 
 
@@ -49,7 +49,7 @@ def test_no_match_writes_nothing(store, tmp_path):
 
 
 def test_empty_store_skips_judge(tmp_path):
-    judge = FakeJudge(["R001"])
+    judge = FakeJudge(["R-00001"])
     assert asyncio.run(find_rules(RuleStore(tmp_path / "rules.json"), judge, "p")) == []
     assert judge.calls == []
 
@@ -64,16 +64,16 @@ def test_usage_log_appends_only(tmp_path):
     path.write_text('{"existing": true}\n', encoding="utf-8")
     log = UsageLog(path)
     ts = datetime(2026, 10, 16, 9, 0, tzinfo=timezone(timedelta(hours=9)))
-    log.append("rejected", "R001", "長い\n問題文", ts=ts)
+    log.append("rejected", "R-00001", "長い\n問題文", ts=ts)
     assert read_log(path) == [
         {"existing": True},
-        {"ts": "2026-10-16T09:00:00+09:00", "event": "rejected", "rule_id": "R001", "problem": "長い 問題文"},
+        {"ts": "2026-10-16T09:00:00+09:00", "event": "rejected", "rule_id": "R-00001", "problem": "長い 問題文"},
     ]
     with pytest.raises(ValueError):
-        log.append("unknown", "R001", "p")
+        log.append("unknown", "R-00001", "p")
 
 
 def test_usage_log_truncates_long_problem(tmp_path):
     log = UsageLog(tmp_path / "usage.jsonl")
-    log.append("applied", "R001", "あ" * 500)
+    log.append("applied", "R-00001", "あ" * 500)
     assert len(read_log(tmp_path / "usage.jsonl")[0]["problem"]) == 200

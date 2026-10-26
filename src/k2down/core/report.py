@@ -55,7 +55,9 @@ def build_report(
             proposal_counts[event] += 1
             if event == "declined":
                 content = {k: v for k, v in proposed.get(record["proposal"], {}).items() if k not in ("ts", "event")}
-                declined.append({**content, "proposal": record["proposal"], "reason": record.get("reason")})
+                declined.append(
+                    {**content, "proposal": record["proposal"], "decline_reason": record.get("reason")}
+                )
         if decision and record.get("problem"):
             problems.setdefault(decision, record["problem"])
         if event in ("applied", "rejected") and rule_id:

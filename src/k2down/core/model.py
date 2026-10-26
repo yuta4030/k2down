@@ -48,6 +48,7 @@ class Proposal:
     """ルールを足す・外す・置き換える提案。人が受け入れるまでルールにはならない。
 
     add は rule、retire は rule_id、replace は両方を持つ。
+    reason はなぜ変えるか。出どころ（decision / source）とは別に持つ。
     """
 
     id: str
@@ -57,10 +58,11 @@ class Proposal:
     scopes: list[str] = field(default_factory=list)
     decision: str | None = None
     source: str | None = None
+    reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {"id": self.id, "kind": self.kind}
-        for key in ("rule", "rule_id", "decision", "source"):
+        for key in ("rule", "rule_id", "decision", "source", "reason"):
             if getattr(self, key) is not None:
                 data[key] = getattr(self, key)
         if self.scopes:
@@ -68,7 +70,7 @@ class Proposal:
         return data
 
     def same_content(self, other: Proposal) -> bool:
-        """中身（種類・対象・文言・範囲）が同じか。出どころは比べない。"""
+        """中身（種類・対象・文言・範囲）が同じか。出どころと理由は比べない。"""
         return (self.kind, self.rule_id, self.rule, self.scopes) == (other.kind, other.rule_id, other.rule, other.scopes)
 
 
@@ -157,6 +159,7 @@ def parse_proposal(data: Any) -> Proposal:
         scopes=data.get("scopes"),
         decision=data.get("decision"),
         source=data.get("source"),
+        reason=data.get("reason"),
         proposal_id=proposal_id,
     )
 
@@ -168,6 +171,7 @@ def new_proposal(
     scopes: Any = None,
     decision: Any = None,
     source: Any = None,
+    reason: Any = None,
     proposal_id: str = "",
 ) -> Proposal:
     """種類に合った項目がそろっているかを検証して提案を作る。"""
@@ -190,4 +194,5 @@ def new_proposal(
         scopes=normalize_scopes(scopes),
         decision=optional_token(decision, "decision"),
         source=optional_line(source, "source"),
+        reason=optional_line(reason, "reason"),
     )

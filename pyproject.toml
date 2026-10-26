@@ -1,6 +1,6 @@
 [project]
 name = "k2down"
-version = "0.3.0"
+version = "0.4.0"
 description = "Knock down problems with decision rules written in natural language."
 readme = "README.md"
 license = "MIT"

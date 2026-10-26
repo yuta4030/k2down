@@ -13,7 +13,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from k2down import __version__
 from k2down.core import (
@@ -64,7 +64,7 @@ Workflow for agents:
   7. if a new, general decision was made and no rule covered it, propose a rule; a human accepts or declines it:
      k2down propose add "<one-line rule>" --decision D123 [--scope S]
      k2down propose replace R012 "<new rule>" --decision D123
-     k2down propose retire R020 --decision D123
+     k2down propose retire R020 --decision D123 --reason "<why>"
      k2down proposals                              # pending proposals
      k2down accept P001                            # the human accepted: the rule change is applied
      k2down decline P002 --reason "<why>"          # the human declined: kept in the log for review
@@ -82,7 +82,7 @@ Output format (default):
   retire    "retired <ID> <ID>..."
   propose   the proposal ID (the same ID again if the same proposal is still pending)
   proposals one per line: "<P> add <text>", "<P> retire <ID>", "<P> replace <ID> <text>",
-            followed by " [scopes: ...]", " [decision: <D>]", " [source: <text>]" if any
+            followed by " [scopes: ...]", " [decision: <D>]", " [source: <text>]", " [reason: <text>]" if any
   accept    one line per proposal: "accepted <P> add <new ID>", "accepted <P> retire <ID>",
             "accepted <P> replace <ID> <new ID>"
   decline   "declined <P> <P>..."
@@ -91,7 +91,7 @@ Output format (default):
   decide    "decided <DECISION> <OUTCOME>"
   escalate  "escalated <DECISION> <REASON> [<ID>...]"
   report    sections of plain text; see the headings
-  errors    "error: <message>" on stderr, exit status 1. Nothing is recorded on error.
+  errors    "error: <message>" on stderr, exit status 1 (also for wrong arguments). Nothing is recorded on error.
 
 Rule IDs look like R-k7m2q (R001 from older stores stays valid), proposal IDs like P-3xq9a.
 Copy them exactly: a mistyped ID is an error, not another rule.
@@ -103,12 +103,21 @@ A scope name has no spaces. A rule with no scope applies everywhere.
 """
 
 
+class UsageError(ValueError):
+    """引数の誤り。argparse の既定（終了コード 2、テキスト）ではなく、ほかのエラーと同じ形で返す。"""
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        raise UsageError(f"{message} (see: {self.prog} --help)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     # --json はサブコマンドの前後どちらに置いても効くようにする。
-    common = argparse.ArgumentParser(add_help=False)
+    common = Parser(add_help=False)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON")
 
-    parser = argparse.ArgumentParser(
+    parser = Parser(
         prog="k2down",
         description=DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -146,14 +155,14 @@ def build_parser() -> argparse.ArgumentParser:
     kinds = propose.add_subparsers(dest="kind", required=True, metavar="KIND")
     p_add = kinds.add_parser("add", help="propose a new rule", parents=[common])
     p_add.add_argument("rule", help='rule text (single line), or "-" for stdin')
-    add_origin(p_add, scopes=True)
+    add_origin(p_add, scopes=True, reason=True)
     p_retire = kinds.add_parser("retire", help="propose removing a rule", parents=[common])
     p_retire.add_argument("rule_id", metavar="RULE_ID")
-    add_origin(p_retire, scopes=False)
+    add_origin(p_retire, scopes=False, reason=True)
     p_replace = kinds.add_parser("replace", help="propose replacing a rule", parents=[common])
     p_replace.add_argument("rule_id", metavar="RULE_ID")
     p_replace.add_argument("rule", help='new rule text (single line), or "-" for stdin')
-    add_origin(p_replace, scopes=True, inherit=True)
+    add_origin(p_replace, scopes=True, inherit=True, reason=True)
 
     sub.add_parser("proposals", help="print pending proposals", parents=[common])
 
@@ -198,13 +207,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def add_origin(cmd: argparse.ArgumentParser, scopes: bool, inherit: bool = False) -> None:
-    """ルールや提案の範囲と出どころの引数を足す。"""
+def add_origin(cmd: argparse.ArgumentParser, scopes: bool, inherit: bool = False, reason: bool = False) -> None:
+    """ルールや提案の範囲と出どころの引数を足す。提案には理由も足す。"""
     if scopes:
         default = " (default: the scopes of the replaced rule)" if inherit else ""
         cmd.add_argument("--scope", action="append", default=None, help=f"scope of the rule (repeatable){default}")
     cmd.add_argument("--decision", default=None, help="decision ID the rule came from (no spaces)")
     cmd.add_argument("--source", default=None, help="other origin that is not a decision ID (one line)")
+    if reason:
+        cmd.add_argument("--reason", default=None, help="why the rule should change (one line)")
 
 
 def run(args: argparse.Namespace) -> tuple[Any, str]:
@@ -226,7 +237,7 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
         return {"id": rule.id}, rule.id
     if args.command == "replace":
         old, new = replace(store, log, args.old_id, read_text(args.rule), args.scope, args.decision, args.source)
-        return {"id": new.id, "replaced": old.id}, new.id
+        return {"rule_id": old.id, "replaced_by": new.id}, new.id
     if args.command == "propose":
         proposal, created = propose(
             store,
@@ -238,6 +249,7 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
             scopes=getattr(args, "scope", None),
             decision=args.decision,
             source=args.source,
+            reason=args.reason,
         )
         return {"id": proposal.id, "created": created}, proposal.id
     if args.command == "proposals":
@@ -283,7 +295,8 @@ def render_rules(rules: list[Rule]) -> str:
 
 def render_proposal(proposal: Proposal) -> str:
     words = [proposal.id, proposal.kind, *(w for w in (proposal.rule_id, proposal.rule) if w is not None)]
-    return " ".join(words) + render_origin(proposal.scopes, proposal.decision, proposal.source)
+    text = " ".join(words) + render_origin(proposal.scopes, proposal.decision, proposal.source)
+    return text if proposal.reason is None else f"{text} [reason: {one_line(proposal.reason)}]"
 
 
 def render_origin(scopes: list[str], decision: str | None, source: str | None) -> str:
@@ -335,10 +348,10 @@ def render_report(data: dict[str, Any]) -> list[str]:
             ],
         ),
         (
-            "declined proposals (proposal kind target text | reason):",
+            "declined proposals (proposal kind target text | why proposed | why declined):",
             [
                 " ".join(str(d[k]) for k in ("proposal", "kind", "rule_id", "rule") if d.get(k) is not None)
-                + f" | {d.get('reason') or '-'}"
+                + f" | {d.get('reason') or '-'} | {d.get('decline_reason') or '-'}"
                 for d in data["declined_proposals"]
             ],
         ),
@@ -368,9 +381,10 @@ def read_text(value: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    as_json = getattr(args, "json", False)
+    argv = sys.argv[1:] if argv is None else argv
+    as_json = "--json" in argv
     try:
+        args = build_parser().parse_args(argv)
         if args.command in READ_ONLY:
             data, text = run(args)
         else:

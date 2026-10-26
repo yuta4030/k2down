@@ -51,7 +51,7 @@ class RuleStore:
             if not isinstance(raw, list):
                 raise RuleError("rules must be a list")
         else:
-            raise RuleError(f"unsupported rules.json version: {version!r}")
+            raise _version_error(self.path, version, FORMAT_VERSION)
         rules = [parse_rule(item) for item in raw]
         _check_unique(rule.id for rule in rules)
         return rules
@@ -171,7 +171,7 @@ class ProposalStore:
         if data is None:
             return []
         if data.get("version") != PROPOSALS_VERSION:
-            raise RuleError(f"unsupported proposals.json version: {data.get('version')!r}")
+            raise _version_error(self.path, data.get("version"), PROPOSALS_VERSION)
         raw = data.get("proposals")
         if not isinstance(raw, list):
             raise RuleError("proposals must be a list")
@@ -200,6 +200,16 @@ class ProposalStore:
         """決まった提案を消して保存する。"""
         self.items = [proposal for proposal in self.items if proposal.id not in proposal_ids]
         self.save()
+
+
+def _version_error(path: Path, version: Any, supported: int) -> RuleError:
+    """新しい k2down が書いたファイルなら、更新を促す。"""
+    if type(version) is int and version > supported:
+        return RuleError(
+            f"{path.name} is version {version}, written by a newer k2down (this one reads up to {supported}); "
+            "upgrade k2down"
+        )
+    return RuleError(f"unsupported {path.name} version: {version!r}")
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

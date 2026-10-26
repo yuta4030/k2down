@@ -91,6 +91,15 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
   - 読むだけのコマンド（`list` / `proposals` / `report`）はロックを取らない。MCP の `find_rules` / `add_rule` も記録の間ロックを取る
 - v0.3 でも作らないもの：推論ループ、マージの自動実行、範囲の階層、一致・矛盾・類似の判定
 
+## v0.4 の範囲
+連携する道具（algr など）のための整備。背景は `DESIGN.md` の「v0.4：連携の約束」。
+- 互換性の約束、契約テスト、CHANGELOG、リリースの自動化（上の「互換性とリリース」）
+- 引数の誤りも終了コード 1、`--json` なら `{"error"}`
+- `replace --json` は `{"rule_id", "replaced_by"}`（`accept` やログの `replaced` と同じ名前）
+- 提案に `reason`（なぜ変えるか、1 行）。`propose add|retire|replace --reason`。出どころ（`decision` / `source`）とは別に持つ。同じ提案かどうかの比較には使わない
+  - ルールには写さない。理由は提案の記録（`proposed` イベント）にだけ持ち、受け入れたルールからは `proposal` でたどる
+  - `report` の `declined_proposals` は、提案の理由を `reason`、却下の理由を `decline_reason` で返す（ログの `declined` イベントは `reason` のまま）
+
 ## データ形式
 
 ### rules.json（v0.3 から version 2）
@@ -126,7 +135,7 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 }
 ```
 - `kind` は `add`（`rule` を持つ）/ `retire`（`rule_id` を持つ）/ `replace`（両方）
-- 任意で `scopes`（add / replace）、`decision`、`source`
+- 任意で `scopes`（add / replace）、`decision`、`source`、`reason`（v0.4）
 
 ### usage.jsonl
 1 行 1 イベント。最低限のフィールド：

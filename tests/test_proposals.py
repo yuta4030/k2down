@@ -80,6 +80,18 @@ def test_accept_changes_nothing_on_error(env, tmp_path, ids, message):
     assert after == before
 
 
+def test_reason_is_kept_apart_from_origin(env, tmp_path):
+    store, proposals, log = env
+    proposal, _ = propose(store, proposals, log, "retire", rule_id="R-00001", source="人の方針", reason="使われていない")
+    assert (proposal.source, proposal.reason) == ("人の方針", "使われていない")
+    assert ProposalStore(tmp_path / "proposals.json").items[0].reason == "使われていない"
+    assert events(log, "proposed")[0]["reason"] == "使われていない"
+    # 理由が違っても中身が同じなら同じ提案
+    assert propose(store, proposals, log, "retire", rule_id="R-00001", reason="別の理由")[0].id == proposal.id
+    with pytest.raises(RuleError):
+        propose(store, proposals, log, "add", rule="x", reason="1 行目\n2 行目")
+
+
 def test_accept_fails_when_target_is_gone(env):
     store, proposals, log = env
     propose(store, proposals, log, "retire", rule_id="R-00001")
@@ -128,7 +140,7 @@ def test_report_counts_proposals(env):
     decide(log, "I2", "人の答え 2", "none")
     propose(store, proposals, log, "add", rule="a", decision="I1")
     propose(store, proposals, log, "add", rule="b", decision="I1")
-    propose(store, proposals, log, "retire", rule_id="R-00001")
+    propose(store, proposals, log, "retire", rule_id="R-00001", reason="もう当てはまらない")
     propose(store, proposals, log, "add", rule="c")
     accept(store, proposals, log, ["P-00001"])
     decline(proposals, log, ["P-00002", "P-00003"], reason="範囲が広すぎる")
@@ -136,8 +148,14 @@ def test_report_counts_proposals(env):
     report = build_report(store.rules(), log.read(), pending=proposals.items)
     assert report["proposals"] == {"proposed": 4, "accepted": 1, "declined": 2, "pending": 1}
     assert report["declined_proposals"] == [
-        {"proposal": "P-00002", "kind": "add", "rule": "b", "decision": "I1", "reason": "範囲が広すぎる"},
-        {"proposal": "P-00003", "kind": "retire", "rule_id": "R-00001", "reason": "範囲が広すぎる"},
+        {"proposal": "P-00002", "kind": "add", "rule": "b", "decision": "I1", "decline_reason": "範囲が広すぎる"},
+        {
+            "proposal": "P-00003",
+            "kind": "retire",
+            "rule_id": "R-00001",
+            "reason": "もう当てはまらない",
+            "decline_reason": "範囲が広すぎる",
+        },
     ]
     assert [(c["decision"], c["proposals"]) for c in report["new_rule_candidates"]] == [
         ("I1", ["P-00001", "P-00002"]),
@@ -162,14 +180,14 @@ def test_cli_proposal_flow(k2_text, tmp_path):
     assert k2_text("propose", "add", "-", "--decision", "I3-2", "--scope", "plan", stdin="提案は k2down に置く\n") == (0, "P-00001\n", "")
     assert k2_text("propose", "add", "提案は k2down に置く", "--scope", "plan") == (0, "P-00001\n", "")
     assert k2_text("propose", "replace", "R-00001", "引けるなら引く", "--source", "人の方針") == (0, "P-00002\n", "")
-    assert k2_text("propose", "retire", "R-00001", "--decision", "I3-3") == (0, "P-00003\n", "")
+    assert k2_text("propose", "retire", "R-00001", "--decision", "I3-3", "--reason", "二重になった") == (0, "P-00003\n", "")
     code, out, _ = k2_text("--json", "propose", "retire", "R-00001")
     assert json.loads(out) == {"id": "P-00003", "created": False}
 
     assert k2_text("proposals") == (0, """\
 P-00001 add 提案は k2down に置く [scopes: plan] [decision: I3-2]
 P-00002 replace R-00001 引けるなら引く [source: 人の方針]
-P-00003 retire R-00001 [decision: I3-3]
+P-00003 retire R-00001 [decision: I3-3] [reason: 二重になった]
 """, "")
     assert k2_text("accept", "P-00001", "P-00002") == (0, "accepted P-00001 add R-00002\naccepted P-00002 replace R-00001 R-00003\n", "")
     assert k2_text("decline", "P-00003", "--reason", "置き換え済み") == (0, "declined P-00003\n", "")
@@ -182,7 +200,10 @@ R-00002 提案は k2down に置く [scopes: plan] [decision: I3-2]
 
     code, out, _ = k2_text("report")
     assert "proposals: proposed 3, accepted 2, declined 1, pending 0\n" in out
-    assert "declined proposals (proposal kind target text | reason):\n  P-00003 retire R-00001 | 置き換え済み\n" in out
+    assert (
+        "declined proposals (proposal kind target text | why proposed | why declined):\n"
+        "  P-00003 retire R-00001 | 二重になった | 置き換え済み\n"
+    ) in out
 
     code, out, err = k2_text("accept", "P-00001")
     assert (code, out, err) == (1, "", "error: unknown proposal id: P-00001 (already accepted)\n")

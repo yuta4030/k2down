@@ -6,10 +6,12 @@ k2down の版ごとの変更です。版の付け方と、何を「壊れる変�
 ## [0.4.0] - 2026-10-26
 
 ### 壊れる変更
+- `report --json` の `declined_proposals[].reason` を、却下の理由から提案の理由に変えた。却下の理由は `decline_reason` で返す
 - `replace --json` の出力を `{"id", "replaced"}` から `{"rule_id", "replaced_by"}` に変えた。`accept` で置き換えたときや `usage.jsonl` の `replaced` と同じ名前にそろえた
 - 引数の誤り（知らないコマンド、必須の引数がないなど）も、ほかのエラーと同じく終了コード 1 にした（これまでは argparse の既定の 2）。`--json` なら `{"error": "..."}` を stderr に書く
 
 ### 追加
+- `propose add|retire|replace --reason`：なぜ変えるか（1 行）。出どころ（`--decision` / `--source`）とは別の項目。`proposals` と `report` の却下一覧にも出る
 - README に「互換性」の節を追加。守る範囲（CLI の引数、`--json` の出力、`--version`、終了コード、ファイル形式）と版の付け方を明記した
 - 利用者との約束を確かめるテスト（`tests/test_contract.py`）
 - リリースの自動化。main の版にタグがなければ、CI が `v<版>` のタグと GitHub Release を作る（`.github/workflows/release.yml`、手順は `CONTRIBUTING.md`）

@@ -165,6 +165,7 @@ def propose(
     scopes: list[str] | None = None,
     decision: str | None = None,
     source: str | None = None,
+    reason: str | None = None,
 ) -> tuple[Proposal, bool]:
     """提案を出す。(提案, 新しく出したか) を返す。
 
@@ -172,7 +173,9 @@ def propose(
     """
     if decision is not None:
         decision = validate_decision(decision)
-    proposal = new_proposal(kind, rule=rule, rule_id=rule_id, scopes=scopes, decision=decision, source=source)
+    proposal = new_proposal(
+        kind, rule=rule, rule_id=rule_id, scopes=scopes, decision=decision, source=source, reason=reason
+    )
     if proposal.rule_id is not None:
         lookup_rules(store, log, [proposal.rule_id])
     same = proposals.find_same(proposal)

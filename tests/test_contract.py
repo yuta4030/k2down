@@ -92,14 +92,14 @@ def test_proposal_commands(k2):
     code, out, _ = k2("propose", "add", "b", "--decision", "D1", "--source", "s", "--scope", "plan")
     has_keys(out, "id", "created")
     added = out["id"]
-    retired = k2("propose", "retire", rule_id, "--decision", "D2")[1]["id"]
+    retired = k2("propose", "retire", rule_id, "--decision", "D2", "--reason", "r")[1]["id"]
     declined = k2("propose", "add", "c")[1]["id"]
 
     code, out, _ = k2("proposals")
     has_keys(out, "proposals")
     by_id = {p["id"]: p for p in out["proposals"]}
     has_keys(by_id[added], "id", "kind", "rule", "decision", "source", "scopes")
-    has_keys(by_id[retired], "id", "kind", "rule_id", "decision")
+    has_keys(by_id[retired], "id", "kind", "rule_id", "decision", "reason")
 
     code, out, _ = k2("accept", added, retired)
     has_keys(out, "accepted")
@@ -117,7 +117,7 @@ def test_report(k2):
     k2("apply", "--decision", "D1", "--problem", "p", a, b)
     k2("decide", "--decision", "D1", "--actual", "x", "--outcome", "miss")
     k2("decide", "--decision", "D2", "--actual", "y", "--outcome", "none")
-    k2("decline", k2("propose", "add", "c", "--decision", "D2")[1]["id"])
+    k2("decline", k2("propose", "add", "c", "--decision", "D2", "--reason", "r")[1]["id"], "--reason", "d")
 
     code, out, _ = k2("report", "--min-decisions", "0")
     has_keys(
@@ -139,7 +139,7 @@ def test_report(k2):
     has_keys(out["conflict_candidates"][0], "rule_ids", "decisions")
     has_keys(out["new_rule_candidates"][0], "decision", "problem", "actual", "proposals")
     has_keys(out["proposals"], "proposed", "accepted", "declined", "pending")
-    has_keys(out["declined_proposals"][0], "proposal", "kind", "rule", "decision")
+    has_keys(out["declined_proposals"][0], "proposal", "kind", "rule", "decision", "reason", "decline_reason")
     has_keys(out["daily"][0], "date", "decided", "hit", "ratio")
     assert isinstance(out["drop_candidates"], list) and isinstance(out["rewrite_candidates"], list)
 

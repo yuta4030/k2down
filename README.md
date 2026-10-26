@@ -43,9 +43,9 @@ k2down --dir /path/to/your/rules list
 | `k2down decide --decision D [--predicted P] --actual A --outcome hit\|miss\|none [--problem P]` | 予測と人の決断の答え合わせを記録する | `decided D12 miss` |
 | `k2down replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを新しい ID のルールに置き換える。`--scope` を省くと範囲を引き継ぐ | `R-z4k6h` |
 | `k2down retire ID...` | ルールを消す | `retired R-m5r7f` |
-| `k2down propose add RULE [--scope S]... [--decision D] [--source S]` | ルールを足す提案を出す | `P-a2m4n` |
-| `k2down propose retire ID [--decision D] [--source S]` | ルールを外す提案を出す | `P-c5q8p` |
-| `k2down propose replace ID RULE [--scope S]... [--decision D] [--source S]` | ルールを置き換える提案を出す | `P-e7t2r` |
+| `k2down propose add RULE [--scope S]... [--decision D] [--source S] [--reason R]` | ルールを足す提案を出す | `P-a2m4n` |
+| `k2down propose retire ID [--decision D] [--source S] [--reason R]` | ルールを外す提案を出す | `P-c5q8p` |
+| `k2down propose replace ID RULE [--scope S]... [--decision D] [--source S] [--reason R]` | ルールを置き換える提案を出す | `P-e7t2r` |
 | `k2down proposals` | 決まっていない提案を返す | `P-a2m4n add <本文> [decision: I3-2]` |
 | `k2down accept PID...` | 提案を受け入れ、ルールに反映する | `accepted P-a2m4n add R-v7d3j` |
 | `k2down decline PID... [--reason R]` | 提案を却下する（履歴に残る） | `declined P-c5q8p` |
@@ -90,6 +90,7 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 ルールを変えるとき、エージェントは直接 `add` / `replace` / `retire` するかわりに提案を出し、人が受け入れたものだけをルールにできます。
 
 - 提案は足す（`add`）・外す（`retire`）・置き換える（`replace`）の 3 種類。ID は `P-` + ランダムな 5 文字で、使い回しません
+- `--reason` はなぜ変えるか（1 行）。出どころ（`--decision` / `--source`）とは別の項目です
 - 中身（種類・対象のルール・文言・範囲）が同じ提案が残っていれば、新しく振らずにその ID を返します。再送しても増えません。同じかどうかは文字列の一致で見ます（似ているかの判定はしません）
 - `accept` は提案どおりに `add` / `retire` / `replace` を行います。受け入れられない提案（対象のルールがもうない、同じルールを対象にした提案を一度に受け入れる）が 1 つでもあれば、何も変えずにエラーになります
 - 決まった提案は `proposals.json` から消え、出した・受け入れた・却下した記録が `usage.jsonl` に残ります。決まった提案の ID を渡すと、エラーにどう決まったかが出ます
@@ -101,7 +102,7 @@ k2down は記録と集計だけを行い、意味の判定（予測が当たっ�
 - 書き直す候補（miss と rejected が多い順）
 - ぶつかる組の候補（同じ決断で同時に当たって外れた組と、`conflict` で人に聞いた組）
 - 新しいルールの候補（`none` の決断と人の答え、その決断から出た提案の ID）
-- 提案の数（出した・受け入れた・却下した・残っている）と、却下された提案の一覧
+- 提案の数（出した・受け入れた・却下した・残っている）と、却下された提案の一覧（`reason` は提案の理由、`decline_reason` は却下の理由）
 - 日ごとの「ルールで決まった割合」（hit ÷ 記録された決断）
 
 ### AI エージェントに使わせる
@@ -207,7 +208,7 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 {"ts": "...", "event": "added", "rule_id": "R-x8c2g", "decision": "D12"}
 {"ts": "...", "event": "replaced", "rule_id": "R-p2w6d", "replaced_by": "R-z4k6h", "proposal": "P-e7t2r"}
 {"ts": "...", "event": "retired", "rule_id": "R-m5r7f"}
-{"ts": "...", "event": "proposed", "proposal": "P-e7t2r", "kind": "replace", "rule_id": "R-p2w6d", "rule": "...", "decision": "D12"}
+{"ts": "...", "event": "proposed", "proposal": "P-e7t2r", "kind": "replace", "rule_id": "R-p2w6d", "rule": "...", "decision": "D12", "reason": "..."}
 {"ts": "...", "event": "accepted", "proposal": "P-e7t2r"}
 {"ts": "...", "event": "declined", "proposal": "P-g9w5s", "reason": "..."}
 ```

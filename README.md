@@ -21,9 +21,11 @@ k2down = 決断（ke-tsu-dan）= knockdown。
 ## CLI
 
 ```sh
-uv tool install git+https://github.com/yuta4030/k2down   # k2down コマンドを PATH に入れる（clone 不要・依存ゼロ）
+uv tool install git+https://github.com/yuta4030/k2down@v0.4.0   # k2down コマンドを PATH に入れる（clone 不要・依存ゼロ）
 k2down --dir /path/to/your/rules list
 ```
+
+`@v0.4.0` のようにタグを付けると版を固定できます（版の一覧は [CHANGELOG](CHANGELOG.md)）。付けなければ main の最新が入ります。
 
 入れずに試すだけなら `uvx --from git+https://github.com/yuta4030/k2down k2down list` でも動きます。
 手元で clone した場合は `uv tool install ./k2down`、または `uv run --directory /path/to/k2down k2down ...` を使います。
@@ -59,7 +61,7 @@ R-h4n8c 実装の細部はエージェントが決める
 
 - 既定の出力は、LLM が読みやすくトークンの少ないプレーンテキストです（同じ内容の JSON の半分以下）
 - `--json` を付けると JSON を返します（`list` は `{"rules": [{"id", "rule", "scopes"?, "decision"?, "source"?, "note"?}], "scopes": [使われている範囲]}`）
-- エラー時は終了コード 1 で、stderr に `error: ...`（`--json` なら `{"error": "..."}`）を書きます。存在しない ID を指定したときは何も記録しません
+- エラー時は終了コード 1 で、stderr に `error: ...`（`--json` なら `{"error": "..."}`）を書きます。引数の誤りも同じです。存在しない ID を指定したときは何も記録しません
 - テキスト引数に `-` を渡すと stdin から読みます
 - ID は連番ではなくランダムです。書き間違えた ID はほぼ確実に「ない ID」としてエラーになり、別のルールに記録されることはありません。同時に動くエージェントやブランチどうしでも ID がぶつかりません
 
@@ -212,6 +214,24 @@ record(store, UsageLog("usage.jsonl"), "applied", [rule.id], "公開 API を新�
 
 `added` / `replaced` / `retired` は、提案を受け入れて行ったときに `proposal` を持ちます。
 
+## 互換性
+
+k2down を道具から呼ぶ利用者（AI エージェントのフローなど）のために、次のものを約束として扱います。
+
+- **守るもの**
+  - CLI のコマンド名・引数
+  - `--json` の出力の形（キーの名前と意味）
+  - `k2down --version` の出力（`k2down X.Y.Z`。最後の語が版）
+  - 終了コード（成功は 0、エラーは 1）と、`--json` のときのエラーの形（stderr に `{"error": "..."}`）
+  - ファイルの形式（`rules.json` / `proposals.json` / `usage.jsonl`）
+- **壊れる変更とみなさないもの**
+  - `--json` の出力やファイルに、キーやイベントを足すこと。利用側は知らないキーやイベントを無視してください
+  - 既定のテキスト出力の細かな形。テキストは LLM が読むためのもので、機械で読むなら `--json` を使ってください（大きく変えるときは CHANGELOG に書きます）
+  - エラーメッセージの文言
+- **版の付け方**：[セマンティック バージョニング](https://semver.org/lang/ja/)に従います。1.0 より前は、壊れる変更があればマイナー（0.4 → 0.5）、なければパッチ（0.4.0 → 0.4.1）を上げます。変わったことは [CHANGELOG](CHANGELOG.md) に書き、壊れる変更は別の見出しにします
+- **タグ**：各版に `v<版>` のタグと GitHub Release があります
+- **ファイルの版**：`rules.json` と `proposals.json` は `version` を持ちます。古い版のファイルは読めるように保ち、新しい k2down が書いたファイルを古い k2down で読むと、更新を促すエラーになります
+
 ## 開発
 
 ```sh
@@ -220,6 +240,7 @@ uv run pytest
 
 テストは固定の結果を返すフェイク判定器で行い、通信しません。
 `src/k2down` が通信用モジュールを import していないことと、CLI とコアが標準ライブラリだけで書かれていることもテストで確認しています。
+互換性の約束は `tests/test_contract.py` で確かめています。リリースの手順は [CONTRIBUTING](CONTRIBUTING.md) にあります。
 
 ## ライセンス
 

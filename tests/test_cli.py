@@ -190,7 +190,7 @@ def test_decision_flow(k2, tmp_path):
 def test_replace_and_retire(k2, tmp_path):
     for text in "abc":
         k2("add", text)
-    assert k2("replace", "R-00001", "a2") == (0, {"id": "R-00004", "replaced": "R-00001"}, None)
+    assert k2("replace", "R-00001", "a2") == (0, {"rule_id": "R-00001", "replaced_by": "R-00004"}, None)
     assert k2("retire", "R-00003")[1] == {"retired": [{"id": "R-00003", "rule": "c"}]}
     assert k2("add", "d")[1] == {"id": "R-00005"}
     assert [r["id"] for r in k2("list")[1]["rules"]] == ["R-00004", "R-00002", "R-00005"]

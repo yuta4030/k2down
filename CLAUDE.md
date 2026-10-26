@@ -13,10 +13,16 @@ k2down = 決断（ke-tsu-dan）= knockdown。決断ルールで問題を次々�
 
 ## 技術スタック
 - Python 3.11+、パッケージ管理は uv
-- CLI は標準ライブラリの argparse。既定の出力は LLM 向けのプレーンテキスト（`ID␣本文`）、`--json` で JSON。エラーは終了コード 1 と stderr
+- CLI は標準ライブラリの argparse。既定の出力は LLM 向けのプレーンテキスト（`ID␣本文`）、`--json` で JSON。エラーは終了コード 1 と stderr（引数の誤りも同じ）
 - MCP サーバー（任意）は公式 Python SDK（stdio）
 - clone してすぐ動くこと（ビルド工程なし）
 - テストは pytest。判定は固定の結果を返すフェイク判定器で行い、テストでも通信しない
+
+## 互換性とリリース
+- 利用者との約束は README の「互換性」。CLI の引数、`--json` の出力、`--version` の形、終了コード（0 / 1）、ファイル形式を守る
+- `tests/test_contract.py` が約束を確かめる。これが落ちる変更をするなら、マイナー版を上げ、CHANGELOG の「壊れる変更」に書く。キーを足すだけなら壊れる変更ではない（テストにも足す）
+- 0.x のうちは、壊れる変更があればマイナー、なければパッチを上げる。`pyproject.toml` と `__version__` をそろえ、`CHANGELOG.md` に `## [<版>] - <日付>` の節を書く
+- タグ（`v<版>`）と GitHub Release は、main にマージされたあと CI（`.github/workflows/release.yml`）が作る。手順は `CONTRIBUTING.md`
 
 ## 最小版（v0.1）の範囲
 - ルールの読み書き（`rules.json`）

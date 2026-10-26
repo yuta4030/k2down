@@ -13,7 +13,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from k2down import __version__
 from k2down.core import (
@@ -91,7 +91,7 @@ Output format (default):
   decide    "decided <DECISION> <OUTCOME>"
   escalate  "escalated <DECISION> <REASON> [<ID>...]"
   report    sections of plain text; see the headings
-  errors    "error: <message>" on stderr, exit status 1. Nothing is recorded on error.
+  errors    "error: <message>" on stderr, exit status 1 (also for wrong arguments). Nothing is recorded on error.
 
 Rule IDs look like R-k7m2q (R001 from older stores stays valid), proposal IDs like P-3xq9a.
 Copy them exactly: a mistyped ID is an error, not another rule.
@@ -103,12 +103,21 @@ A scope name has no spaces. A rule with no scope applies everywhere.
 """
 
 
+class UsageError(ValueError):
+    """引数の誤り。argparse の既定（終了コード 2、テキスト）ではなく、ほかのエラーと同じ形で返す。"""
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        raise UsageError(f"{message} (see: {self.prog} --help)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     # --json はサブコマンドの前後どちらに置いても効くようにする。
-    common = argparse.ArgumentParser(add_help=False)
+    common = Parser(add_help=False)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON")
 
-    parser = argparse.ArgumentParser(
+    parser = Parser(
         prog="k2down",
         description=DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -226,7 +235,7 @@ def run(args: argparse.Namespace) -> tuple[Any, str]:
         return {"id": rule.id}, rule.id
     if args.command == "replace":
         old, new = replace(store, log, args.old_id, read_text(args.rule), args.scope, args.decision, args.source)
-        return {"id": new.id, "replaced": old.id}, new.id
+        return {"rule_id": old.id, "replaced_by": new.id}, new.id
     if args.command == "propose":
         proposal, created = propose(
             store,
@@ -368,9 +377,10 @@ def read_text(value: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    as_json = getattr(args, "json", False)
+    argv = sys.argv[1:] if argv is None else argv
+    as_json = "--json" in argv
     try:
+        args = build_parser().parse_args(argv)
         if args.command in READ_ONLY:
             data, text = run(args)
         else:

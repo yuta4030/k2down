@@ -1,7 +1,7 @@
 # CHANGELOG
 
 k2down の版ごとの変更です。版の付け方と、何を「壊れる変更」とみなすかは [README の「互換性」](README.md#互換性) を参照してください。
-各版には `v<版>` のタグがあり、`uv tool install git+https://github.com/yuta4030/k2down@v0.4.0` のように固定して入れられます。
+0.4.0 以降の各版には `v<版>` のタグがあり、`uv tool install git+https://github.com/yuta4030/k2down@v0.4.0` のように固定して入れられます（0.3.0 以前にはタグがありません）。
 
 ## [0.4.0] - 2026-10-26
 
